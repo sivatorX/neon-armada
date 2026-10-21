@@ -1,0 +1,903 @@
+<meta charset="utf-8">
+<title>Battleship</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: chart-table — header strip, two plotting boards side by side, a console below. Stacks on phones. */
+:root {
+  --bg: #e7eeed;
+  --panel: #f5f8f7;
+  --line: #c3d3d6;
+  --sea: #d3e3e7;
+  --sea-hover: #bfd6dc;
+  --grid: #a4bec6;
+  --ink: #12212b;
+  --muted: #536d77;
+  --ship: #4c5c66;
+  --ghost: rgba(76, 92, 102, 0.28);
+  --sunk: #7d2a1c;
+  --hit: #d23f24;
+  --hit-ring: #ffd9cf;
+  --miss: #ffffff;
+  --miss-ring: #7d98a2;
+  --pv: #8fb3a1;
+  --pv-bad: #e6a99c;
+  --flash: rgba(184, 131, 42, 0.55);
+  --accent: #a8741f;
+  --accent-ink: #ffffff;
+  --focus: #1c64a8;
+  --card: #fbfcfc;
+  --chart: rgba(18, 33, 43, 0.045);
+  --sheen: rgba(255, 255, 255, 0.35);
+  --hull-hi: #71838d;
+  --glow: rgba(210, 63, 36, 0.5);
+  --win: #2f7d55;
+  --bomb-glow: rgba(255, 150, 60, 0);
+  --shadow: 0 1px 2px rgba(18, 33, 43, 0.06), 0 10px 28px rgba(18, 33, 43, 0.08);
+
+  --display: "Saira Stencil One", Impact, "Arial Narrow", sans-serif;
+  --label: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a161d; --panel: #0f212b; --line: #1f3a48; --sea: #10293a; --sea-hover: #183a50;
+    --grid: #22475a; --ink: #dbe7ea; --muted: #86a2ad; --ship: #8fa3ad; --ghost: rgba(143, 163, 173, 0.3);
+    --sunk: #b54a35; --hit: #ff6847; --hit-ring: #5a1d12; --miss: #e9f1f3; --miss-ring: #3e6474;
+    --pv: #3f7a62; --pv-bad: #7a3426; --flash: rgba(224, 176, 74, 0.5); --accent: #e0b04a; --accent-ink: #1a1305; --focus: #6fb4f0;
+    --card: #0d1e27; --chart: rgba(219, 231, 234, 0.035); --sheen: rgba(255, 255, 255, 0.06); --hull-hi: #b9c8cf;
+    --glow: rgba(255, 104, 71, 0.55); --win: #5cc08a; --bomb-glow: rgba(255, 180, 90, 0.35); --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a161d; --panel: #0f212b; --line: #1f3a48; --sea: #10293a; --sea-hover: #183a50;
+  --grid: #22475a; --ink: #dbe7ea; --muted: #86a2ad; --ship: #8fa3ad; --ghost: rgba(143, 163, 173, 0.3);
+  --sunk: #b54a35; --hit: #ff6847; --hit-ring: #5a1d12; --miss: #e9f1f3; --miss-ring: #3e6474;
+  --pv: #3f7a62; --pv-bad: #7a3426; --flash: rgba(224, 176, 74, 0.5); --accent: #e0b04a; --accent-ink: #1a1305; --focus: #6fb4f0;
+  --card: #0d1e27; --chart: rgba(219, 231, 234, 0.035); --sheen: rgba(255, 255, 255, 0.06); --hull-hi: #b9c8cf;
+  --glow: rgba(255, 104, 71, 0.55); --win: #5cc08a; --bomb-glow: rgba(255, 180, 90, 0.35); --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+/* Background: a soft glow at the top and faint lines like a sea chart. */
+body {
+  background:
+    radial-gradient(1100px 520px at 50% -8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    linear-gradient(var(--chart) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, var(--chart) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--bg);
+  background-attachment: fixed;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 22px; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 24px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+.top h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.4rem, 7vw, 3.8rem); line-height: 0.9; letter-spacing: 0.04em; margin: 0; display: flex; align-items: center; gap: 0.25em; }
+/* Radar logo next to the title; the light wedge spins. */
+.emblem { width: 0.85em; height: 0.85em; flex: none; color: var(--accent); }
+.emblem .sweep { transform-box: view-box; transform-origin: 50% 50%; animation: sweep 4s linear infinite; }
+@keyframes sweep { to { transform: rotate(360deg); } }
+.spec { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.02em; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.spec b { color: var(--ink); font-weight: 500; }
+.spec .b { padding: 3px 10px; font-size: 13px; }
+
+/* Status line */
+.status { display: flex; align-items: center; gap: 12px; min-height: 2.4em; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow); }
+.chip { flex: none; font-family: var(--label); font-weight: 600; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 12px; border-radius: 999px; background: var(--ink); color: var(--bg); }
+.chip.turn { background: var(--accent); color: var(--accent-ink); animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } to { box-shadow: 0 0 0 9px transparent; } }
+.chip.won { background: #2f7d55; color: #fff; }
+.chip.lost { background: var(--hit); color: #fff; }
+#msg { margin: 0; font-size: 16px; text-wrap: pretty; min-width: 0; }
+
+/* Boards */
+.theatre { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.side { display: grid; gap: 12px; align-content: start; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px 18px; box-shadow: var(--shadow); transition: border-color 0.3s, box-shadow 0.3s; }
+/* Gold glow around the board that is about to be fired on. */
+.wrap[data-turn="player"] #side-enemy,
+.wrap[data-turn="enemy"] #side-player { border-color: var(--accent); box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.side-head h2 { margin: 0; font-family: var(--label); font-weight: 600; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.side-head h2::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ship); }
+#side-enemy .side-head h2::before { background: var(--hit); }
+.side-head .note { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.frame { display: grid; grid-template-columns: 1.5em minmax(0, 1fr); grid-template-rows: auto auto; gap: 4px; width: 100%; max-width: 470px; justify-self: center; }
+.cols, .rows { font-family: var(--mono); font-size: 11px; color: var(--muted); display: grid; text-align: center; }
+.cols { grid-column: 2; grid-template-columns: repeat(10, 1fr); padding-inline: 1px; }
+.rows { grid-template-rows: repeat(10, 1fr); align-items: center; padding-block: 1px; }
+.sea-box { position: relative; border-radius: 10px; }
+.sea { display: grid; grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(10, 1fr); gap: 1px; background: var(--grid); border: 1px solid var(--grid); aspect-ratio: 1; width: 100%; max-width: 100%; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); }
+/* Two see-through layers on top of the water: a soft shine, and a light band that slowly sweeps across. */
+.sea-box::before, .sea-box::after { content: ""; position: absolute; inset: 0; border-radius: 10px; pointer-events: none; z-index: 1; }
+.sea-box::before { background: linear-gradient(160deg, var(--sheen), transparent 45%, rgba(0, 30, 50, 0.08)); }
+.sea-box::after { background: linear-gradient(115deg, transparent 42%, var(--sheen) 50%, transparent 58%) 0 0 / 300% 100%; animation: shimmer 10s linear infinite; opacity: 0.6; }
+@keyframes shimmer { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+.veil { z-index: 2; border-radius: 10px; backdrop-filter: blur(2px); position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; background: color-mix(in srgb, var(--bg) 55%, transparent); font-family: var(--label); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 14px; color: var(--ink); }
+
+.cell { position: relative; appearance: none; border: 0; margin: 0; padding: 0; background: var(--sea); color: inherit; font: inherit; min-width: 0; min-height: 0; cursor: default; }
+.cell::before, .cell::after { content: ""; position: absolute; pointer-events: none; display: none; }
+/* Ships: a light-to-dark gradient makes them look round instead of flat. */
+.hull::before { display: block; background: linear-gradient(var(--hull-hi), var(--ship) 70%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
+.hull.h::before { inset: 20% 0; }
+.hull.v::before { inset: 0 20%; background: linear-gradient(90deg, var(--hull-hi), var(--ship) 70%); }
+.hull.h.first::before { left: 7%; border-radius: 999px 0 0 999px; }
+.hull.h.last::before { right: 7%; border-radius: 0 999px 999px 0; }
+.hull.v.first::before { top: 7%; border-radius: 999px 999px 0 0; }
+.hull.v.last::before { bottom: 7%; border-radius: 0 0 999px 999px; }
+.hull.ghost::before { background: var(--ghost); box-shadow: none; }
+/* Sunk ships get diagonal stripes. */
+.hull.sunk::before { background: repeating-linear-gradient(135deg, var(--sunk) 0 4px, color-mix(in srgb, var(--sunk) 70%, #000) 4px 8px); }
+.miss::after { display: block; inset: 38%; border-radius: 50%; background: var(--miss); box-shadow: 0 0 0 1.5px var(--miss-ring); }
+.hit::after { display: block; inset: 28%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffc2b0, var(--hit) 55%); box-shadow: 0 0 0 2px var(--hit-ring), 0 0 10px 1px var(--glow); }
+/* The newest shot: hits explode, misses splash. */
+.last-shot.hit::after { animation: boom 0.6s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.last-shot.miss::after { animation: splash 0.6s ease-out; }
+@keyframes boom {
+  0% { transform: scale(0); }
+  55% { transform: scale(1.45); box-shadow: 0 0 0 3px var(--hit-ring), 0 0 26px 10px var(--glow); }
+  100% { transform: scale(1); }
+}
+@keyframes splash {
+  0% { transform: scale(0); box-shadow: 0 0 0 0 var(--miss-ring); }
+  60% { transform: scale(1.3); box-shadow: 0 0 0 8px transparent; }
+  100% { transform: scale(1); }
+}
+/* ---------- Bombs ----------
+   ::after = the bomb picture (an SVG drawing: shiny ball, metal cap, curved fuse).
+   ::before = the burning spark at the tip of the fuse. */
+.bomb::after {
+  display: block; inset: 12%;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='.35' cy='.35' r='.75'%3E%3Cstop offset='0' stop-color='%23738089'/%3E%3Cstop offset='.45' stop-color='%23232c32'/%3E%3Cstop offset='1' stop-color='%23080b0d'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath d='M21 7.2q2.5-4 6.5-3.2' fill='none' stroke='%23d9b273' stroke-width='1.6' stroke-linecap='round'/%3E%3Crect x='16.5' y='7' width='6' height='5' rx='1' transform='rotate(30 19.5 9.5)' fill='%23818d95' stroke='%23161c20' stroke-width='.8'/%3E%3Ccircle cx='14' cy='19' r='10' fill='url(%23g)' stroke='%23000' stroke-opacity='.5' stroke-width='.6'/%3E%3Cellipse cx='10.5' cy='14.8' rx='3' ry='1.8' transform='rotate(-35 10.5 14.8)' fill='%23fff' fill-opacity='.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.35)) drop-shadow(0 0 4px var(--bomb-glow));
+  animation: bob 3s ease-in-out infinite;
+}
+.bomb::before {
+  display: block; z-index: 1; width: 30%; height: 30%; left: 71%; top: -2.5%; border-radius: 50%;
+  /* a bright core + star-shaped rays, faded out at the edges with a mask */
+  background:
+    radial-gradient(circle, #fff 0 12%, #ffd36b 26%, transparent 46%),
+    repeating-conic-gradient(#ffb340 0 8deg, transparent 8deg 45deg);
+  -webkit-mask: radial-gradient(circle, #000 35%, transparent 70%);
+          mask: radial-gradient(circle, #000 35%, transparent 70%);
+  animation: spark 0.45s ease-in-out infinite alternate;
+}
+/* Your own bombs get a faint warning glow on the water. */
+.bomb:not(.exploded) { background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, var(--sea)), var(--sea) 70%); }
+@keyframes bob { 50% { transform: translateY(-3%); } }
+@keyframes spark {
+  from { transform: scale(0.75) rotate(0deg); opacity: 0.8; }
+  to   { transform: scale(1.2) rotate(40deg); opacity: 1; }
+}
+
+/* A bomb that was shot: burnt water, a spiky fireball, and (only for the newest shot) a shock-wave ring. */
+.exploded { background: radial-gradient(circle, #2b1d16 0 22%, color-mix(in srgb, #2b1d16 40%, var(--sea)) 40%, var(--sea) 72%); }
+.exploded::before { display: none; }
+.exploded::after {
+  display: block; inset: 6%; border-radius: 50%; filter: none;
+  background:
+    radial-gradient(circle, #fff7d6 0 12%, #ffd36b 24%, #ff8a2a 40%, var(--hit) 55%, transparent 66%),
+    repeating-conic-gradient(from 10deg, #ff8a2a 0 10deg, transparent 10deg 30deg);
+  -webkit-mask: radial-gradient(circle, #000 45%, transparent 75%);
+          mask: radial-gradient(circle, #000 45%, transparent 75%);
+  animation: none;
+}
+.last-shot.exploded::after { animation: blast 0.7s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.last-shot.exploded::before {
+  display: block; inset: 0; width: auto; height: auto; left: 0; top: 0;
+  border-radius: 50%; border: 3px solid #ffb340; background: none; -webkit-mask: none; mask: none;
+  animation: shock 0.7s ease-out forwards;
+}
+@keyframes blast {
+  0%   { transform: scale(0) rotate(-60deg); }
+  60%  { transform: scale(1.4) rotate(10deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes shock {
+  from { transform: scale(0.2); opacity: 1; }
+  to   { transform: scale(1.9); opacity: 0; }
+}
+.pv { background: var(--pv); }
+.pv-bad { background: var(--pv-bad); }
+#sea-player .cell:not(:disabled) { cursor: pointer; }
+#sea-enemy .cell:not(:disabled) { cursor: crosshair; }
+#sea-enemy .cell:not(:disabled):hover { background: var(--sea-hover); }
+/* Aiming circle on the enemy square under the mouse (or keyboard focus). */
+#sea-enemy .cell:not(:disabled):hover::after,
+#sea-enemy .cell:not(:disabled):focus-visible::after { display: block; inset: 18%; border-radius: 50%; border: 2px solid var(--accent); background: radial-gradient(circle, var(--accent) 0 1.5px, transparent 2px); }
+.cell:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; z-index: 1; }
+.last-shot { animation: ping 1s ease-out; }
+@keyframes ping { from { box-shadow: inset 0 0 0 40px var(--flash); } to { box-shadow: inset 0 0 0 0 transparent; } }
+
+.fleet { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+.fleet li { display: flex; align-items: center; gap: 6px; }
+.pips { display: inline-flex; gap: 2px; }
+.pips i { width: 8px; height: 8px; background: var(--ship); border-radius: 2px; }
+.pips i.x { background: var(--hit); }
+.fleet li.sunk { color: var(--muted); text-decoration: line-through; }
+.fleet li.sunk .pips i { background: var(--sunk); }
+
+/* Console */
+.console { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 40px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow); }
+.group { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.group h3 { margin: 0; font-family: var(--label); font-weight: 600; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.placing { font-size: 17px; font-weight: 500; }
+.placing small { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: 6px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+button.b { font-family: var(--label); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 14px; border-radius: 8px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; transition: transform 0.12s, box-shadow 0.2s, background-color 0.2s; }
+button.b:hover:not(:disabled) { background: var(--panel); transform: translateY(-1px); }
+button.b:active:not(:disabled) { transform: translateY(0); }
+button.b.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+button.b.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+button.b:disabled { opacity: 0.4; cursor: not-allowed; }
+button.b:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; background: var(--panel); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+
+.seg { display: inline-flex; border: 1.5px solid var(--ink); border-radius: 8px; overflow: hidden; width: fit-content; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { font-family: var(--label); font-weight: 600; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 14px; cursor: pointer; transition: background-color 0.2s, color 0.2s; }
+.seg input:checked + label { background: var(--ink); color: var(--bg); }
+.seg input:focus-visible + label { outline: 2px solid var(--focus); outline-offset: -3px; }
+.seg input:disabled + label { cursor: not-allowed; opacity: 0.6; }
+
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stat { background: var(--panel); padding: 8px 10px; }
+.stat span { display: block; font-family: var(--label); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.stat b { font-family: var(--mono); font-weight: 500; font-size: 20px; font-variant-numeric: tabular-nums; }
+
+.log { list-style: none; margin: 0; padding: 0; max-height: 228px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-family: var(--mono); font-size: 13px; }
+.log li { display: grid; grid-template-columns: 3.2em 4.5em 3em minmax(0, 1fr); gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.log li:last-child { border-bottom: 0; }
+.log .n { color: var(--muted); }
+.log .r-hit { color: var(--hit); font-weight: 500; }
+.log .r-miss { color: var(--muted); }
+.log .r-sunk { color: var(--hit); font-weight: 500; text-transform: uppercase; }
+.log .r-bomb { color: var(--accent); font-weight: 500; text-transform: uppercase; }
+.log .empty { display: block; color: var(--muted); font-family: var(--body); }
+
+/* End-of-game banner: covers the page with a blurred background. */
+.banner { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--bg) 60%, transparent); backdrop-filter: blur(3px); animation: fade 0.3s ease-out; }
+.banner-card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 28px 32px; width: 100%; max-width: 380px; text-align: center; display: grid; gap: 10px; justify-items: center; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25); animation: rise 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.banner-kicker { margin: 0; font-family: var(--label); font-weight: 600; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.banner-card h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 3rem; line-height: 1; letter-spacing: 0.04em; }
+.banner.won h2 { color: var(--win); }
+.banner.lost h2 { color: var(--hit); }
+#banner-text { margin: 0 0 8px; color: var(--muted); text-wrap: pretty; }
+.banner-card .btns { justify-content: center; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(24px) scale(0.94); } }
+
+@media (max-width: 760px) {
+  .theatre, .console { grid-template-columns: minmax(0, 1fr); }
+  .wrap[data-phase="battle"] #side-enemy { order: -1; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .side { padding: 12px; }
+  .console { padding: 14px; }
+}
+/* People who turned off animations on their device get none. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap" id="app">
+  <header class="top">
+    <h1>
+      <svg class="emblem" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <circle cx="20" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="2" opacity="0.6"/>
+        <path class="sweep" d="M20 20 L20 2 A18 18 0 0 1 35.6 11 Z" fill="currentColor" opacity="0.35"/>
+        <circle cx="20" cy="20" r="2.5" fill="currentColor"/>
+      </svg>
+      Battleship
+    </h1>
+    <div class="spec">
+      <span>Grid <b>10 × 10</b></span>
+      <span>Fleet <b>5 ships · 17 squares</b></span>
+      <span>Bombs <b>3 per sea</b></span>
+      <span>Record <b id="record">0–0</b></span>
+      <button class="b" id="btn-sound" type="button" aria-pressed="true">🔊 Sound on</button>
+    </div>
+  </header>
+
+  <section class="status" aria-live="polite">
+    <span class="chip" id="chip">Setup</span>
+    <p id="msg"></p>
+  </section>
+
+  <main class="theatre">
+    <section class="side" id="side-player">
+      <div class="side-head"><h2>Your waters</h2><span class="note" id="note-player"></span></div>
+      <div class="frame">
+        <div class="cols" id="cols-player"></div>
+        <div class="rows" id="rows-player"></div>
+        <div class="sea-box"><div class="sea" id="sea-player"></div></div>
+      </div>
+      <ul class="fleet" id="fleet-player"></ul>
+    </section>
+
+    <section class="side" id="side-enemy">
+      <div class="side-head"><h2>Enemy waters</h2><span class="note" id="note-enemy"></span></div>
+      <div class="frame">
+        <div class="cols" id="cols-enemy"></div>
+        <div class="rows" id="rows-enemy"></div>
+        <div class="sea-box">
+          <div class="sea" id="sea-enemy"></div>
+          <div class="veil" id="veil">Enemy fleet hidden.<br>Start the battle to open fire.</div>
+        </div>
+      </div>
+      <ul class="fleet" id="fleet-enemy"></ul>
+    </section>
+  </main>
+
+  <section class="console">
+    <div class="group" id="ctl-place">
+      <h3>Deploy your fleet</h3>
+      <div class="placing" id="placing"></div>
+      <div class="btns">
+        <button class="b" id="btn-rotate" type="button">Rotate</button>
+        <button class="b" id="btn-random" type="button">Shuffle</button>
+        <button class="b" id="btn-clear" type="button">Clear</button>
+        <button class="b primary" id="btn-start" type="button">Start battle</button>
+      </div>
+      <p class="hint">Click a square to place the next ship. Press <kbd>R</kbd> to rotate.</p>
+      <p class="hint">Watch out: when the battle starts, each sea hides 3 bombs. Hit one and you lose your next turn.</p>
+    </div>
+
+    <div class="group" id="ctl-battle">
+      <h3>Gunnery</h3>
+      <div class="stats">
+        <div class="stat"><span>Shots</span><b id="s-shots">0</b></div>
+        <div class="stat"><span>Hits</span><b id="s-hits">0</b></div>
+        <div class="stat"><span>Accuracy</span><b id="s-acc">–</b></div>
+        <div class="stat"><span>Hits taken</span><b id="s-taken">0</b></div>
+      </div>
+      <div class="btns"><button class="b" id="btn-new" type="button">New game</button></div>
+    </div>
+
+    <div class="group">
+      <h3>Opponent</h3>
+      <div class="seg" role="radiogroup" aria-label="Opponent difficulty">
+        <input type="radio" name="diff" id="diff-easy" value="easy"><label for="diff-easy">Easy</label>
+        <input type="radio" name="diff" id="diff-medium" value="medium"><label for="diff-medium">Medium</label>
+        <input type="radio" name="diff" id="diff-hard" value="hard"><label for="diff-hard">Hard</label>
+      </div>
+      <p class="hint" id="diff-note"></p>
+      <h3>Shot log</h3>
+      <ol class="log" id="log"></ol>
+    </div>
+  </section>
+
+  <div class="banner" id="banner" hidden>
+    <div class="banner-card" role="dialog" aria-modal="true" aria-labelledby="banner-title">
+      <p class="banner-kicker">Battle over</p>
+      <h2 id="banner-title">Victory</h2>
+      <p id="banner-text"></p>
+      <div class="btns">
+        <button class="b primary" id="banner-again" type="button">Play again</button>
+        <button class="b" id="banner-close" type="button">See the boards</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const N = 10, ROWS = "ABCDEFGHIJ";
+  const FLEET = [
+    { name: "Carrier", len: 5 }, { name: "Battleship", len: 4 }, { name: "Cruiser", len: 3 },
+    { name: "Submarine", len: 3 }, { name: "Destroyer", len: 2 }
+  ];
+  const AI_DELAY = 700;
+  const BOMBS = 3;                       // bombs hidden in each sea
+  const AIM = " Enemy is taking aim…";   // added to the message while the computer "thinks"
+  const $ = id => document.getElementById(id);
+  const coord = i => ROWS[Math.floor(i / N)] + (i % N + 1);
+  const rnd = n => Math.floor(Math.random() * n);
+
+  // ---------- board model ----------
+  const newBoard = () => ({ cells: Array.from({ length: N * N }, () => ({ ship: -1, shot: false, bomb: false })), ships: [] });
+  // Hide `count` bombs on random squares of empty water.
+  function addBombs(b, count) {
+    const water = b.cells.map((c, i) => (c.ship < 0 && !c.bomb ? i : -1)).filter(i => i >= 0);
+    for (let k = 0; k < count && water.length; k++) {
+      const pick = water.splice(rnd(water.length), 1)[0];   // take one random square out of the list
+      b.cells[pick].bomb = true;
+    }
+  }
+  function cellsFor(len, r, c, dir) {
+    const out = [];
+    for (let k = 0; k < len; k++) {
+      const rr = r + (dir === "v" ? k : 0), cc = c + (dir === "h" ? k : 0);
+      if (rr >= N || cc >= N) return null;
+      out.push(rr * N + cc);
+    }
+    return out;
+  }
+  const fits = (b, cells) => !!cells && cells.every(i => b.cells[i].ship === -1);
+  function addShip(b, spec, cells, dir) {
+    const id = b.ships.length;
+    b.ships.push({ name: spec.name, len: spec.len, cells, dir, hits: 0 });
+    cells.forEach(i => (b.cells[i].ship = id));
+  }
+  function randomBoard() {
+    const b = newBoard();
+    for (const spec of FLEET) {
+      for (;;) {
+        const dir = Math.random() < 0.5 ? "h" : "v";
+        const cells = cellsFor(spec.len, rnd(N), rnd(N), dir);
+        if (fits(b, cells)) { addShip(b, spec, cells, dir); break; }
+      }
+    }
+    return b;
+  }
+  // Pull the origin back so a ship placed near an edge still fits.
+  function originFor(i, len, dir) {
+    let r = Math.floor(i / N), c = i % N;
+    if (dir === "h") c = Math.min(c, N - len); else r = Math.min(r, N - len);
+    return cellsFor(len, r, c, dir);
+  }
+  const isSunk = s => s.hits >= s.len;
+  const allSunk = b => b.ships.length > 0 && b.ships.every(isSunk);
+  function fire(b, i) {
+    const cell = b.cells[i];
+    cell.shot = true;
+    if (cell.ship < 0) return { hit: false, sunk: false, ship: null, bomb: cell.bomb };
+    const s = b.ships[cell.ship];
+    s.hits++;
+    return { hit: true, sunk: isSunk(s), ship: s.name };
+  }
+
+  // ---------- computer opponent ----------
+  function knowledge(b) {
+    const hitOpen = i => { const c = b.cells[i]; return c.shot && c.ship >= 0 && !isSunk(b.ships[c.ship]); };
+    const blocked = i => { const c = b.cells[i]; return c.shot && !hitOpen(i); }; // misses and sunk ships
+    return { hitOpen, blocked };
+  }
+  const unshot = b => b.cells.map((c, i) => (c.shot ? -1 : i)).filter(i => i >= 0);
+
+  function pickEasy(b) {
+    const { hitOpen } = knowledge(b);
+    const near = new Set();
+    b.cells.forEach((c, i) => {
+      if (!hitOpen(i)) return;
+      const r = Math.floor(i / N), col = i % N;
+      [[r - 1, col], [r + 1, col], [r, col - 1], [r, col + 1]].forEach(([rr, cc]) => {
+        if (rr >= 0 && rr < N && cc >= 0 && cc < N && !b.cells[rr * N + cc].shot) near.add(rr * N + cc);
+      });
+    });
+    const pool = near.size && Math.random() < 0.75 ? [...near] : unshot(b);
+    return pool[rnd(pool.length)];
+  }
+
+  // Count every way the remaining ships could still lie; shoot the square most of them cover.
+  function pickHard(b) {
+    const { hitOpen, blocked } = knowledge(b);
+    const anyOpen = b.cells.some((c, i) => hitOpen(i));
+    const score = new Array(N * N).fill(0);
+    for (const s of b.ships) {
+      if (isSunk(s)) continue;
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) for (const dir of ["h", "v"]) {
+        const cells = cellsFor(s.len, r, c, dir);
+        if (!cells || cells.some(blocked)) continue;
+        const k = cells.filter(hitOpen).length;
+        if (anyOpen && k === 0) continue;
+        const w = anyOpen ? Math.pow(6, k) : 1;
+        cells.forEach(i => { if (!b.cells[i].shot) score[i] += w; });
+      }
+    }
+    let best = -1, picks = [];
+    score.forEach((v, i) => {
+      if (b.cells[i].shot) return;
+      if (v > best) { best = v; picks = [i]; } else if (v === best) picks.push(i);
+    });
+    if (best <= 0) { const u = unshot(b); return u[rnd(u.length)]; }
+    return picks[rnd(picks.length)];
+  }
+
+  // ---------- record (per browser) ----------
+  function loadRecord() {
+    try { const r = JSON.parse(localStorage.getItem("battleship-record") || "{}"); return { w: r.w | 0, l: r.l | 0 }; }
+    catch { return { w: 0, l: 0 }; }
+  }
+  function saveRecord(r) { try { localStorage.setItem("battleship-record", JSON.stringify(r)); } catch {} }
+  let record = loadRecord();
+
+  // ---------- sound (made with code by the Web Audio API, no sound files needed) ----------
+  let audio = null;                      // created on the first click: browsers block sound before that
+  let muted = loadMuted();
+  function loadMuted() { try { return localStorage.getItem("battleship-muted") === "1"; } catch { return false; } }
+  function saveMuted() { try { localStorage.setItem("battleship-muted", muted ? "1" : "0"); } catch {} }
+  function getAudio() {
+    if (!audio) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;              // very old browser: no sound
+      audio = new AC();
+    }
+    if (audio.state === "suspended") audio.resume();
+    return audio;
+  }
+
+  // A tone (like a beep) that slides from one pitch to another and fades out.
+  // freq = pitch in Hz, dur = seconds, type = wave shape, vol = loudness, delay = seconds to wait first.
+  function tone(freq, endFreq, dur, type = "sine", vol = 0.2, delay = 0) {
+    const a = getAudio(); if (!a || muted) return;
+    const t = a.currentTime + delay;
+    const osc = a.createOscillator(), gain = a.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gain).connect(a.destination);
+    osc.start(t); osc.stop(t + dur);
+  }
+
+  // Noise (random hiss) passed through a filter: low = rumble/explosion, middle = splash, high = crackle.
+  function noise(dur, filterFreq, vol = 0.3, delay = 0, filterType = "lowpass") {
+    const a = getAudio(); if (!a || muted) return;
+    const t = a.currentTime + delay;
+    const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;   // random values = hiss
+    const src = a.createBufferSource(); src.buffer = buf;
+    const filter = a.createBiquadFilter(); filter.type = filterType; filter.frequency.value = filterFreq;
+    const gain = a.createGain();
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(filter).connect(gain).connect(a.destination);
+    src.start(t);
+  }
+
+  // Every sound in the game, built from tones and noise.
+  const SFX = {
+    place: () => tone(520, 380, 0.08, "triangle", 0.15),                         // short click
+    error: () => tone(160, 120, 0.15, "square", 0.06),                            // low buzz
+    start: () => { tone(330, 330, 0.18, "square", 0.08); tone(440, 440, 0.3, "square", 0.08, 0.18); },  // horn
+    miss:  () => { noise(0.5, 1800, 0.25, 0, "bandpass"); tone(300, 120, 0.25, "sine", 0.08); },        // splash
+    hit:   () => { noise(0.6, 900, 0.5); tone(150, 40, 0.5, "sine", 0.4); },                            // boom
+    sunk:  () => { SFX.hit(); noise(1.4, 300, 0.45, 0.15); tone(90, 30, 1.2, "sine", 0.35, 0.15); },    // big boom + rumble
+    bomb:  () => { noise(1.2, 1200, 0.6); tone(220, 30, 0.9, "sawtooth", 0.25); noise(0.8, 3000, 0.15, 0.2, "highpass"); },
+    win:   () => [523, 659, 784, 1047].forEach((f, k) => tone(f, f, 0.35, "triangle", 0.18, 0.5 + k * 0.14)),   // happy notes going up
+    lose:  () => [392, 330, 262, 196].forEach((f, k) => tone(f, f * 0.97, 0.45, "triangle", 0.18, 0.5 + k * 0.22)) // sad notes going down
+  };
+  // Pick the right sound for the result of a shot.
+  const shotSound = r => SFX[r.bomb ? "bomb" : r.sunk ? "sunk" : r.hit ? "hit" : "miss"]();
+
+  // ---------- state ----------
+  let S, hover = -1, abandonArmed = false, abandonTimer = 0, bannerClosed = false;
+  function newGame(diff) {
+    return {
+      id: Math.random().toString(36).slice(2),
+      phase: "place", orient: "h", diff: diff || "hard",
+      player: randomBoard(), enemy: randomBoard(),
+      busy: false, log: [], shots: 0, hits: 0, taken: 0,
+      lastP: -1, lastE: -1, winner: null,
+      playerSkips: 0, enemySkips: 0,   // turns lost to bombs
+      msg: "Your fleet is deployed at random. Start the battle, or clear the board and place the ships yourself."
+    };
+  }
+  const nextSpec = () => (S.phase === "place" && S.player.ships.length < FLEET.length ? FLEET[S.player.ships.length] : null);
+
+  // ---------- build DOM once ----------
+  const pBtns = [], eBtns = [];
+  function buildBoard(side, store, onClick) {
+    $("cols-" + side).innerHTML = Array.from({ length: N }, (_, i) => `<span>${i + 1}</span>`).join("");
+    $("rows-" + side).innerHTML = [...ROWS].map(l => `<span>${l}</span>`).join("");
+    const sea = $("sea-" + side);
+    for (let i = 0; i < N * N; i++) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "cell"; b.dataset.i = i;
+      b.addEventListener("click", () => onClick(i));
+      sea.appendChild(b); store.push(b);
+    }
+    return sea;
+  }
+
+  function placeAt(i) {
+    const spec = nextSpec();
+    if (!spec) return;
+    const cells = originFor(i, spec.len, S.orient);
+    if (fits(S.player, cells)) {
+      addShip(S.player, spec, cells, S.orient);
+      SFX.place();
+      const nxt = nextSpec();
+      S.msg = nxt ? `${spec.name} placed at ${coord(cells[0])}. Now the ${nxt.name}.` : "Fleet in position. Start the battle when ready.";
+    } else {
+      SFX.error();
+      S.msg = `The ${spec.name} overlaps another ship there. Try a different square or rotate it.`;
+    }
+    render();
+  }
+
+  function describe(who, i, r) {
+    if (r.bomb) return who === "You" ? `You fired ${coord(i)}: BOMB! You lose your next turn.` : `Enemy fired ${coord(i)}: BOMB! The enemy loses its next turn.`;
+    if (!r.hit) return `${who} fired ${coord(i)}: miss.`;
+    if (r.sunk) return who === "You" ? `You fired ${coord(i)}: hit. Enemy ${r.ship} sunk.` : `Enemy fired ${coord(i)}: your ${r.ship} is sunk.`;
+    return who === "You" ? `You fired ${coord(i)}: hit.` : `Enemy fired ${coord(i)}: hit on your ${r.ship}.`;
+  }
+
+  function playerFire(i) {
+    if (S.phase !== "battle" || S.busy || S.enemy.cells[i].shot) return;
+    const r = fire(S.enemy, i);
+    S.shots++; if (r.hit) S.hits++;
+    S.lastE = i;
+    S.log.push({ who: "You", c: coord(i), r });
+    shotSound(r);
+    if (allSunk(S.enemy)) return end("player");
+    if (r.bomb) S.playerSkips = 1;       // you hit a bomb: you will miss your next turn
+    // The enemy hit a bomb earlier, so it skips this turn and you fire again.
+    if (S.enemySkips > 0) {
+      S.enemySkips--;
+      S.msg = describe("You", i, r) + " The enemy is still recovering from the bomb. Fire again.";
+      render();
+      return;
+    }
+    S.msg = describe("You", i, r) + AIM;
+    S.busy = true;
+    render();
+    scheduleAI();
+  }
+  function scheduleAI() { const id = S.id; setTimeout(() => aiTurn(id), AI_DELAY); }
+  function aiTurn(id) {
+    if (!S || S.id !== id || S.phase !== "battle") return;
+    const i = S.diff === "hard" ? pickHard(S.player) : pickEasy(S.player);
+    const r = fire(S.player, i);
+    if (r.hit) S.taken++;
+    S.lastP = i;
+    S.log.push({ who: "Enemy", c: coord(i), r });
+    shotSound(r);
+    if (allSunk(S.player)) return end("enemy");
+    if (r.bomb) S.enemySkips = 1;        // the enemy hit a bomb: it will miss its next turn
+    const mine = S.msg.replace(AIM, "");
+    // You hit a bomb earlier, so you skip this turn and the enemy fires again.
+    if (S.playerSkips > 0) {
+      S.playerSkips--;
+      S.msg = `${mine} ${describe("Enemy", i, r)}${AIM}`;
+      render();
+      scheduleAI();                      // S.busy stays true, so you can't click
+      return;
+    }
+    S.busy = false;
+    S.msg = `${mine} ${describe("Enemy", i, r)} Your shot.`;
+    render();
+  }
+  function end(winner) {
+    S.phase = "over"; S.winner = winner; S.busy = false;
+    if (winner === "player") {
+      record.w++;
+      SFX.win();
+      const acc = Math.round((S.hits / S.shots) * 100);
+      S.msg = `Victory. You sank all five enemy ships in ${S.shots} shots, ${acc}% accuracy.`;
+    } else {
+      record.l++;
+      SFX.lose();
+      S.msg = "Defeat. Your fleet is gone. Enemy ships still afloat are shown in outline.";
+    }
+    saveRecord(record);
+    render();
+    $("banner-again").focus();
+  }
+
+  // ---------- render ----------
+  function hullClasses(cls, s, i) {
+    cls.push("hull", s.dir);
+    const k = s.cells.indexOf(i);
+    if (k === 0) cls.push("first");
+    if (k === s.len - 1) cls.push("last");
+  }
+
+  function render() {
+    const app = $("app");
+    app.dataset.phase = S.phase;
+    // Tells the CSS whose turn it is, so it can light up the right board.
+    app.dataset.turn = S.phase === "battle" ? (S.busy ? "enemy" : "player") : "";
+    const spec = nextSpec();
+
+    // Player board
+    let pv = new Set(), pvOk = false;
+    if (spec && hover >= 0) {
+      const cells = originFor(hover, spec.len, S.orient);
+      pvOk = fits(S.player, cells);
+      (cells || []).forEach(i => pv.add(i));
+    }
+    S.player.cells.forEach((cell, i) => {
+      const cls = ["cell"]; let label = coord(i);
+      if (cell.ship >= 0) {
+        const s = S.player.ships[cell.ship];
+        hullClasses(cls, s, i);
+        if (isSunk(s)) cls.push("sunk");
+        label += `, your ${s.name}`;
+      }
+      if (cell.bomb) { cls.push("bomb"); label += ", your bomb"; }   // you can always see your own bombs
+      if (cell.shot) {
+        cls.push(cell.ship >= 0 ? "hit" : cell.bomb ? "exploded" : "miss");
+        label += cell.ship >= 0 ? ", hit" : cell.bomb ? ", exploded" : ", enemy miss";
+      }
+      if (pv.has(i)) cls.push(pvOk ? "pv" : "pv-bad");
+      if (i === S.lastP) cls.push("ping");
+      setCell(pBtns[i], cls, label, !spec);
+    });
+
+    // Enemy board
+    const reveal = S.phase === "over";
+    S.enemy.cells.forEach((cell, i) => {
+      const cls = ["cell"]; let label = coord(i);
+      const s = cell.ship >= 0 ? S.enemy.ships[cell.ship] : null;
+      if (s && (isSunk(s) || reveal)) { hullClasses(cls, s, i); cls.push(isSunk(s) ? "sunk" : "ghost"); }
+      if (cell.bomb && (cell.shot || reveal)) cls.push("bomb");   // enemy bombs stay hidden until hit or game over
+      if (cell.shot) {
+        cls.push(s ? "hit" : cell.bomb ? "exploded" : "miss");
+        label += s ? (isSunk(s) ? `, sunk ${s.name}` : ", hit") : cell.bomb ? ", bomb exploded" : ", miss";
+      } else label += ", not fired on";
+      if (i === S.lastE) cls.push("ping");
+      setCell(eBtns[i], cls, label, S.phase !== "battle" || S.busy || cell.shot);
+    });
+
+    $("veil").hidden = S.phase !== "place";
+    $("fleet-player").innerHTML = fleetHTML(S.player, true);
+    $("fleet-enemy").innerHTML = fleetHTML(S.enemy, false);
+    const afloat = b => b.ships.filter(s => !isSunk(s)).length;
+    $("note-player").textContent = S.phase === "place" ? `${S.player.ships.length}/5 placed` : `${afloat(S.player)} afloat`;
+    $("note-enemy").textContent = S.phase === "place" ? "" : `${afloat(S.enemy)} afloat`;
+
+    // Status
+    const chip = $("chip");
+    chip.className = "chip";
+    if (S.phase === "place") chip.textContent = "Setup";
+    else if (S.phase === "battle") { chip.textContent = S.busy ? "Enemy turn" : "Your turn"; if (!S.busy) chip.classList.add("turn"); }
+    else { chip.textContent = S.winner === "player" ? "Won" : "Lost"; chip.classList.add(S.winner === "player" ? "won" : "lost"); }
+    $("msg").textContent = S.msg;
+    $("record").textContent = `${record.w}–${record.l}`;
+    $("btn-sound").textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
+    $("btn-sound").setAttribute("aria-pressed", String(!muted));
+
+    // End-of-game banner
+    const banner = $("banner");
+    banner.hidden = S.phase !== "over" || bannerClosed;
+    if (S.phase === "over") {
+      const won = S.winner === "player";
+      banner.className = "banner " + (won ? "won" : "lost");
+      $("banner-title").textContent = won ? "Victory" : "Defeat";
+      $("banner-text").textContent = S.msg;
+    }
+
+    // Controls
+    $("ctl-place").hidden = S.phase !== "place";
+    $("ctl-battle").hidden = S.phase === "place";
+    $("placing").innerHTML = spec
+      ? `Next: ${spec.name}<small>${spec.len} squares · ${S.orient === "h" ? "horizontal" : "vertical"}</small>`
+      : `All five ships placed<small>17 squares</small>`;
+    $("btn-rotate").disabled = !spec;
+    $("btn-clear").disabled = S.player.ships.length === 0;
+    $("btn-start").disabled = S.player.ships.length < FLEET.length;
+    $("s-shots").textContent = S.shots;
+    $("s-hits").textContent = S.hits;
+    $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
+    $("s-taken").textContent = `${S.taken}/17`;
+    const nb = $("btn-new");
+    nb.classList.toggle("primary", S.phase === "over" || abandonArmed);
+    nb.textContent = S.phase === "over" ? "Play again" : abandonArmed ? "Click again to abandon" : "New game";
+
+    $("diff-easy").checked = S.diff === "easy";
+    $("diff-hard").checked = S.diff === "hard";
+    $("diff-easy").disabled = $("diff-hard").disabled = S.phase !== "place";
+    $("diff-note").textContent = S.phase !== "place"
+      ? "Difficulty is locked until the next game."
+      : S.diff === "hard"
+        ? "Works out where your ships can still be and fires at the likeliest square."
+        : "Fires mostly at random and follows up on hits.";
+
+    // Log
+    const log = $("log");
+    if (!S.log.length) log.innerHTML = `<li><span class="empty">No shots fired yet.</span></li>`;
+    else log.innerHTML = S.log.map((e, k) => {
+      const res = e.r.bomb ? `<span class="r-bomb">Bomb</span>` : !e.r.hit ? `<span class="r-miss">Miss</span>` : e.r.sunk ? `<span class="r-sunk">Sunk ${e.r.ship}</span>` : `<span class="r-hit">Hit</span>`;
+      return `<li><span class="n">${String(k + 1).padStart(3, "0")}</span><span>${e.who}</span><span>${e.c}</span>${res}</li>`;
+    }).reverse().join("");
+  }
+
+  function setCell(el, cls, label, disabled) {
+    // Re-trigger the ping animation only when the last-shot square changes.
+    const ping = cls.includes("ping");
+    const finalCls = cls.filter(c => c !== "ping");
+    const name = finalCls.join(" ");
+    const wasPing = el.dataset.ping === "1";
+    if (ping && !wasPing) { el.className = name; void el.offsetWidth; }
+    el.className = name + (ping ? " last-shot" : "");
+    el.dataset.ping = ping ? "1" : "0";
+    el.setAttribute("aria-label", label);
+    el.disabled = disabled;
+  }
+
+  function fleetHTML(b, mine) {
+    return b.ships.length === 0 && mine
+      ? `<li style="color:var(--muted)">No ships placed yet.</li>`
+      : FLEET.map((spec, k) => {
+          const s = b.ships[k];
+          const sunk = s && isSunk(s);
+          const pips = Array.from({ length: spec.len }, (_, j) => `<i class="${mine && s && j < s.hits && !sunk ? "x" : ""}"></i>`).join("");
+          return `<li class="${sunk ? "sunk" : ""}"><span class="pips" aria-hidden="true">${pips}</span>${spec.name}${sunk ? " (sunk)" : ""}</li>`;
+        }).join("");
+  }
+
+  // ---------- events ----------
+  function wire() {
+    const pSea = buildBoard("player", pBtns, placeAt);
+    buildBoard("enemy", eBtns, playerFire);
+    pSea.addEventListener("pointerover", e => {
+      const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
+      const i = +c.dataset.i; if (i !== hover) { hover = i; render(); }
+    });
+    pSea.addEventListener("pointerleave", () => { if (hover !== -1) { hover = -1; render(); } });
+    pSea.addEventListener("focusin", e => {
+      const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
+      hover = +c.dataset.i; render();
+    });
+
+    const rotate = () => { if (!nextSpec()) return; S.orient = S.orient === "h" ? "v" : "h"; render(); };
+    $("btn-rotate").onclick = rotate;
+    const toggleSound = () => { muted = !muted; saveMuted(); SFX.place(); render(); };   // click plays only when turning sound on
+    $("btn-sound").onclick = toggleSound;
+    $("btn-random").onclick = () => { S.player = randomBoard(); S.msg = "Fleet reshuffled. Start the battle when ready."; render(); };
+    $("btn-clear").onclick = () => { S.player = newBoard(); S.msg = `Board cleared. Place your Carrier (5 squares).`; render(); };
+    $("btn-start").onclick = () => {
+      if (S.player.ships.length < FLEET.length) return;
+      S.phase = "battle"; hover = -1;
+      addBombs(S.player, BOMBS);
+      addBombs(S.enemy, BOMBS);
+      SFX.start();
+      S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
+      render();
+    };
+    $("btn-new").onclick = () => {
+      if (S.phase === "battle" && !abandonArmed) {
+        abandonArmed = true; render();
+        clearTimeout(abandonTimer);
+        abandonTimer = setTimeout(() => { abandonArmed = false; render(); }, 3000);
+        return;
+      }
+      abandonArmed = false; clearTimeout(abandonTimer);
+      bannerClosed = false;
+      S = newGame(S.diff); render();
+    };
+    $("banner-again").onclick = () => { bannerClosed = false; S = newGame(S.diff); render(); };
+    $("banner-close").onclick = () => { bannerClosed = true; render(); };
+    // Clicking the blurred area outside the card also closes the banner.
+    $("banner").onclick = e => { if (e.target.id === "banner") { bannerClosed = true; render(); } };
+    document.querySelectorAll('input[name="diff"]').forEach(r => r.addEventListener("change", () => {
+      if (S.phase === "place") { S.diff = r.value; render(); }
+    }));
+    document.addEventListener("keydown", e => {
+      if (e.target.matches("input, textarea")) return;
+      if (e.key === "r" || e.key === "R") rotate();
+      if (e.key === "m" || e.key === "M") toggleSound();
+      if (e.key === "Escape" && S.phase === "over" && !bannerClosed) { bannerClosed = true; render(); }
+    });
+  }
+
+  function start(data) {
+    S = data && data.state ? data.state : newGame("hard");
+    wire();
+    render();
+    if (S.phase === "battle" && S.busy) scheduleAI();
+  }
+  window.claude?.hot?.snapshot?.(() => ({ state: S }));
+  window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
