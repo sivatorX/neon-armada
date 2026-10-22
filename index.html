@@ -312,6 +312,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       <span>Bombs <b>3 per sea</b></span>
       <span>Record <b id="record">0–0</b></span>
       <button class="b" id="btn-sound" type="button" aria-pressed="true">🔊 Sound on</button>
+      <button class="b" id="btn-music" type="button" aria-pressed="true">🎵 Music on</button>
     </div>
   </header>
 
@@ -579,6 +580,77 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   // Pick the right sound for the result of a shot.
   const shotSound = r => SFX[r.bomb ? "bomb" : r.sunk ? "sunk" : r.hit ? "hit" : "miss"]();
 
+  // ---------- background music (also made with code) ----------
+  // How it works: every 50 ms, scheduler() plans the notes for the next 0.2 seconds.
+  // Planning a little ahead keeps the rhythm steady even if the page is busy.
+  let musicOn = loadMusic();
+  let musicGain = null;                  // master volume knob for the music
+  let musicTimer = 0, nextNoteTime = 0, step = 0;
+  function loadMusic() { try { return localStorage.getItem("battleship-music") !== "0"; } catch { return true; } }
+  function saveMusic() { try { localStorage.setItem("battleship-music", musicOn ? "1" : "0"); } catch {} }
+
+  const TEMPO = 96;                      // beats per minute
+  const STEP = 60 / TEMPO / 2;           // one step = half a beat, in seconds
+  // 4 chords, 8 steps each, then it repeats: Am – F – C – G.
+  // Numbers are piano keys (MIDI notes): 60 = middle C, +1 = one key higher.
+  const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];
+  const BASS = [45, 41, 36, 43];
+  const ARP = [0, 1, 2, 1, 0, 1, 2, 1];  // which chord note the melody plays on each step
+  const midi = n => 440 * Math.pow(2, (n - 69) / 12);   // piano key number → frequency in Hz
+
+  // One music note with a soft start (no click) and a fade-out.
+  function note(freq, t, dur, type, vol) {
+    const osc = audio.createOscillator(), g = audio.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(musicGain);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }
+  // A drum: a low tone that drops fast.
+  function drum(t) {
+    const osc = audio.createOscillator(), g = audio.createGain();
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+    g.gain.setValueAtTime(0.6, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc.connect(g).connect(musicGain);
+    osc.start(t); osc.stop(t + 0.25);
+  }
+  function playStep(s, t) {
+    const c = Math.floor(s / 8), inBar = s % 8;          // which chord, and which step inside it
+    if (inBar === 0) {
+      note(midi(BASS[c]), t, STEP * 8, "triangle", 0.5);                  // long bass note
+      CHORDS[c].forEach(n => note(midi(n), t, STEP * 8, "sine", 0.12));   // soft background chord
+    }
+    note(midi(CHORDS[c][ARP[inBar]] + 12), t, STEP * 0.9, "triangle", 0.18);   // melody, one octave higher
+    // During the battle, drums join in: boom . . . boom . boom .
+    if (S && S.phase === "battle" && (inBar === 0 || inBar === 4 || inBar === 6)) drum(t);
+  }
+  function scheduler() {
+    // If the tab was in the background, timers slow down: skip ahead instead of playing a burst of old notes.
+    if (nextNoteTime < audio.currentTime - 0.1) nextNoteTime = audio.currentTime + 0.05;
+    while (nextNoteTime < audio.currentTime + 0.2) {
+      playStep(step, nextNoteTime);
+      nextNoteTime += STEP;
+      step = (step + 1) % 32;            // 4 chords × 8 steps = 32, then start over
+    }
+  }
+  function startMusic() {
+    if (!musicOn || musicTimer) return;  // music is off, or already playing
+    const a = getAudio(); if (!a) return;
+    musicGain = a.createGain();
+    musicGain.gain.value = 0.12;         // quiet, so the sound effects stay clear
+    musicGain.connect(a.destination);
+    step = 0; nextNoteTime = a.currentTime + 0.1;
+    musicTimer = setInterval(scheduler, 50);
+  }
+  function stopMusic() {
+    clearInterval(musicTimer); musicTimer = 0;
+    if (musicGain) { musicGain.disconnect(); musicGain = null; }   // unplug: notes already planned go silent
+  }
+
   // ---------- state ----------
   let S, hover = -1, abandonArmed = false, abandonTimer = 0, bannerClosed = false;
   function newGame(diff) {
@@ -766,6 +838,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("record").textContent = `${record.w}–${record.l}`;
     $("btn-sound").textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
     $("btn-sound").setAttribute("aria-pressed", String(!muted));
+    $("btn-music").textContent = musicOn ? "🎵 Music on" : "🎵 Music off";
+    $("btn-music").setAttribute("aria-pressed", String(musicOn));
 
     // End-of-game banner
     const banner = $("banner");
@@ -854,6 +928,11 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("btn-rotate").onclick = rotate;
     const toggleSound = () => { muted = !muted; saveMuted(); SFX.place(); render(); };   // click plays only when turning sound on
     $("btn-sound").onclick = toggleSound;
+    const toggleMusic = () => { musicOn = !musicOn; saveMusic(); musicOn ? startMusic() : stopMusic(); render(); };
+    $("btn-music").onclick = toggleMusic;
+    // Browsers only allow sound after the first click or key press, so the music starts then.
+    document.addEventListener("pointerdown", startMusic, { once: true });
+    document.addEventListener("keydown", startMusic, { once: true });
     $("btn-random").onclick = () => { S.player = randomBoard(); S.msg = "Fleet reshuffled. Start the battle when ready."; render(); };
     $("btn-clear").onclick = () => { S.player = newBoard(); S.msg = `Board cleared. Place your Carrier (5 squares).`; render(); };
     $("btn-start").onclick = () => {
@@ -887,6 +966,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       if (e.target.matches("input, textarea")) return;
       if (e.key === "r" || e.key === "R") rotate();
       if (e.key === "m" || e.key === "M") toggleSound();
+      if (e.key === "n" || e.key === "N") toggleMusic();
       if (e.key === "Escape" && S.phase === "over" && !bannerClosed) { bannerClosed = true; render(); }
     });
   }
