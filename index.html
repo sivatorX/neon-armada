@@ -1,4 +1,7 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Battleship</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -404,6 +407,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     { name: "Carrier", len: 5 }, { name: "Battleship", len: 4 }, { name: "Cruiser", len: 3 },
     { name: "Submarine", len: 3 }, { name: "Destroyer", len: 2 }
   ];
+  const TOTAL_SQUARES = FLEET.reduce((n, s) => n + s.len, 0);   // 17 — worked out from FLEET, so it stays right if ships change
   const AI_DELAY = 700;
   const BOMBS = 3;                       // bombs hidden in each sea
   const AIM = " Enemy is taking aim…";   // added to the message while the computer "thinks"
@@ -511,6 +515,10 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     return picks[rnd(picks.length)];
   }
 
+  // Medium: half the time it plays like Hard, half the time like Easy.
+  const pickMedium = b => (Math.random() < 0.5 ? pickHard(b) : pickEasy(b));
+  const PICKERS = { easy: pickEasy, medium: pickMedium, hard: pickHard };
+
   // ---------- record (per browser) ----------
   function loadRecord() {
     try { const r = JSON.parse(localStorage.getItem("battleship-record") || "{}"); return { w: r.w | 0, l: r.l | 0 }; }
@@ -537,7 +545,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   // A tone (like a beep) that slides from one pitch to another and fades out.
   // freq = pitch in Hz, dur = seconds, type = wave shape, vol = loudness, delay = seconds to wait first.
   function tone(freq, endFreq, dur, type = "sine", vol = 0.2, delay = 0) {
-    const a = getAudio(); if (!a || muted) return;
+    if (muted) return;                   // check first, so "Sound off" doesn't even wake up the audio system
+    const a = getAudio(); if (!a) return;
     const t = a.currentTime + delay;
     const osc = a.createOscillator(), gain = a.createGain();
     osc.type = type;
@@ -550,19 +559,27 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   }
 
   // Noise (random hiss) passed through a filter: low = rumble/explosion, middle = splash, high = crackle.
+  // One shared 1.5-second chunk of hiss, made once and reused by every noise() call.
+  let noiseBuf = null;
+  function getNoise(a) {
+    if (!noiseBuf) {
+      noiseBuf = a.createBuffer(1, Math.floor(a.sampleRate * 1.5), a.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;   // random values = hiss
+    }
+    return noiseBuf;
+  }
   function noise(dur, filterFreq, vol = 0.3, delay = 0, filterType = "lowpass") {
-    const a = getAudio(); if (!a || muted) return;
+    if (muted) return;
+    const a = getAudio(); if (!a) return;
     const t = a.currentTime + delay;
-    const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;   // random values = hiss
-    const src = a.createBufferSource(); src.buffer = buf;
+    const src = a.createBufferSource(); src.buffer = getNoise(a);
     const filter = a.createBiquadFilter(); filter.type = filterType; filter.frequency.value = filterFreq;
     const gain = a.createGain();
     gain.gain.setValueAtTime(vol, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(filter).connect(gain).connect(a.destination);
-    src.start(t);
+    src.start(t, 0, dur);                // play only the first `dur` seconds of the shared hiss
   }
 
   // Every sound in the game, built from tones and noise.
@@ -660,6 +677,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       player: randomBoard(), enemy: randomBoard(),
       busy: false, log: [], shots: 0, hits: 0, taken: 0,
       lastP: -1, lastE: -1, winner: null,
+      myLine: "",                      // what your last shot did, kept separately so the enemy's turn can add to it
       playerSkips: 0, enemySkips: 0,   // turns lost to bombs
       msg: "Your fleet is deployed at random. Start the battle, or clear the board and place the ships yourself."
     };
@@ -720,7 +738,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       render();
       return;
     }
-    S.msg = describe("You", i, r) + AIM;
+    S.myLine = describe("You", i, r);
+    S.msg = S.myLine + AIM;
     S.busy = true;
     render();
     scheduleAI();
@@ -728,7 +747,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   function scheduleAI() { const id = S.id; setTimeout(() => aiTurn(id), AI_DELAY); }
   function aiTurn(id) {
     if (!S || S.id !== id || S.phase !== "battle") return;
-    const i = S.diff === "hard" ? pickHard(S.player) : pickEasy(S.player);
+    const i = (PICKERS[S.diff] || pickHard)(S.player);
     const r = fire(S.player, i);
     if (r.hit) S.taken++;
     S.lastP = i;
@@ -736,7 +755,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     shotSound(r);
     if (allSunk(S.player)) return end("enemy");
     if (r.bomb) S.enemySkips = 1;        // the enemy hit a bomb: it will miss its next turn
-    const mine = S.msg.replace(AIM, "");
+    const mine = S.myLine || "";
     // You hit a bomb earlier, so you skip this turn and the enemy fires again.
     if (S.playerSkips > 0) {
       S.playerSkips--;
@@ -755,7 +774,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       record.w++;
       SFX.win();
       const acc = Math.round((S.hits / S.shots) * 100);
-      S.msg = `Victory. You sank all five enemy ships in ${S.shots} shots, ${acc}% accuracy.`;
+      S.msg = `Victory. You sank all ${FLEET.length} enemy ships in ${S.shots} shots, ${acc}% accuracy.`;
     } else {
       record.l++;
       SFX.lose();
@@ -763,7 +782,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     }
     saveRecord(record);
     render();
-    $("banner-again").focus();
+    if (!bannerClosed) $("banner-again").focus();
   }
 
   // ---------- render ----------
@@ -774,14 +793,9 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     if (k === s.len - 1) cls.push("last");
   }
 
-  function render() {
-    const app = $("app");
-    app.dataset.phase = S.phase;
-    // Tells the CSS whose turn it is, so it can light up the right board.
-    app.dataset.turn = S.phase === "battle" ? (S.busy ? "enemy" : "player") : "";
+  // Draws only your board. Hovering calls just this, instead of redrawing the whole page.
+  function renderPlayerBoard() {
     const spec = nextSpec();
-
-    // Player board
     let pv = new Set(), pvOk = false;
     if (spec && hover >= 0) {
       const cells = originFor(hover, spec.len, S.orient);
@@ -805,6 +819,16 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       if (i === S.lastP) cls.push("ping");
       setCell(pBtns[i], cls, label, !spec);
     });
+  }
+
+  function render() {
+    const app = $("app");
+    app.dataset.phase = S.phase;
+    // Tells the CSS whose turn it is, so it can light up the right board.
+    app.dataset.turn = S.phase === "battle" ? (S.busy ? "enemy" : "player") : "";
+    const spec = nextSpec();
+
+    renderPlayerBoard();
 
     // Enemy board
     const reveal = S.phase === "over";
@@ -825,7 +849,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("fleet-player").innerHTML = fleetHTML(S.player, true);
     $("fleet-enemy").innerHTML = fleetHTML(S.enemy, false);
     const afloat = b => b.ships.filter(s => !isSunk(s)).length;
-    $("note-player").textContent = S.phase === "place" ? `${S.player.ships.length}/5 placed` : `${afloat(S.player)} afloat`;
+    $("note-player").textContent = S.phase === "place" ? `${S.player.ships.length}/${FLEET.length} placed` : `${afloat(S.player)} afloat`;
     $("note-enemy").textContent = S.phase === "place" ? "" : `${afloat(S.enemy)} afloat`;
 
     // Status
@@ -856,34 +880,39 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("ctl-battle").hidden = S.phase === "place";
     $("placing").innerHTML = spec
       ? `Next: ${spec.name}<small>${spec.len} squares · ${S.orient === "h" ? "horizontal" : "vertical"}</small>`
-      : `All five ships placed<small>17 squares</small>`;
+      : `All ${FLEET.length} ships placed<small>${TOTAL_SQUARES} squares</small>`;
     $("btn-rotate").disabled = !spec;
     $("btn-clear").disabled = S.player.ships.length === 0;
     $("btn-start").disabled = S.player.ships.length < FLEET.length;
     $("s-shots").textContent = S.shots;
     $("s-hits").textContent = S.hits;
     $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
-    $("s-taken").textContent = `${S.taken}/17`;
+    $("s-taken").textContent = `${S.taken}/${TOTAL_SQUARES}`;
     const nb = $("btn-new");
     nb.classList.toggle("primary", S.phase === "over" || abandonArmed);
     nb.textContent = S.phase === "over" ? "Play again" : abandonArmed ? "Click again to abandon" : "New game";
 
-    $("diff-easy").checked = S.diff === "easy";
-    $("diff-hard").checked = S.diff === "hard";
-    $("diff-easy").disabled = $("diff-hard").disabled = S.phase !== "place";
-    $("diff-note").textContent = S.phase !== "place"
-      ? "Difficulty is locked until the next game."
-      : S.diff === "hard"
-        ? "Works out where your ships can still be and fires at the likeliest square."
-        : "Fires mostly at random and follows up on hits.";
+    // Works for all three buttons (Easy, Medium, Hard) without naming each one.
+    document.querySelectorAll('input[name="diff"]').forEach(r => {
+      r.checked = r.value === S.diff;
+      r.disabled = S.phase !== "place";
+    });
+    const DIFF_NOTES = {
+      easy: "Fires mostly at random and follows up on hits.",
+      medium: "Sometimes plays smart, sometimes guesses.",
+      hard: "Works out where your ships can still be and fires at the likeliest square."
+    };
+    $("diff-note").textContent = S.phase !== "place" ? "Difficulty is locked until the next game." : DIFF_NOTES[S.diff] || "";
 
-    // Log
+    // Log (only rebuilt when it actually changed, so it doesn't jump while you scroll it)
     const log = $("log");
-    if (!S.log.length) log.innerHTML = `<li><span class="empty">No shots fired yet.</span></li>`;
-    else log.innerHTML = S.log.map((e, k) => {
-      const res = e.r.bomb ? `<span class="r-bomb">Bomb</span>` : !e.r.hit ? `<span class="r-miss">Miss</span>` : e.r.sunk ? `<span class="r-sunk">Sunk ${e.r.ship}</span>` : `<span class="r-hit">Hit</span>`;
-      return `<li><span class="n">${String(k + 1).padStart(3, "0")}</span><span>${e.who}</span><span>${e.c}</span>${res}</li>`;
-    }).reverse().join("");
+    const logHTML = !S.log.length
+      ? `<li><span class="empty">No shots fired yet.</span></li>`
+      : S.log.map((e, k) => {
+          const res = e.r.bomb ? `<span class="r-bomb">Bomb</span>` : !e.r.hit ? `<span class="r-miss">Miss</span>` : e.r.sunk ? `<span class="r-sunk">Sunk ${e.r.ship}</span>` : `<span class="r-hit">Hit</span>`;
+          return `<li><span class="n">${String(k + 1).padStart(3, "0")}</span><span>${e.who}</span><span>${e.c}</span>${res}</li>`;
+        }).reverse().join("");
+    if (log.dataset.html !== logHTML) { log.innerHTML = logHTML; log.dataset.html = logHTML; }
   }
 
   function setCell(el, cls, label, disabled) {
@@ -911,17 +940,20 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   }
 
   // ---------- events ----------
+  let wired = false;
   function wire() {
+    if (wired) return;                   // only hook up events once, or every key press would count twice
+    wired = true;
     const pSea = buildBoard("player", pBtns, placeAt);
     buildBoard("enemy", eBtns, playerFire);
     pSea.addEventListener("pointerover", e => {
       const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
-      const i = +c.dataset.i; if (i !== hover) { hover = i; render(); }
+      const i = +c.dataset.i; if (i !== hover) { hover = i; renderPlayerBoard(); }
     });
-    pSea.addEventListener("pointerleave", () => { if (hover !== -1) { hover = -1; render(); } });
+    pSea.addEventListener("pointerleave", () => { if (hover !== -1) { hover = -1; renderPlayerBoard(); } });
     pSea.addEventListener("focusin", e => {
       const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
-      hover = +c.dataset.i; render();
+      hover = +c.dataset.i; renderPlayerBoard();
     });
 
     const rotate = () => { if (!nextSpec()) return; S.orient = S.orient === "h" ? "v" : "h"; render(); };
@@ -933,8 +965,13 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     // Browsers only allow sound after the first click or key press, so the music starts then.
     document.addEventListener("pointerdown", startMusic, { once: true });
     document.addEventListener("keydown", startMusic, { once: true });
+    // Pause the music while the tab is hidden (saves battery), and pick it back up when you return.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) stopMusic();
+      else if (musicOn && audio) startMusic();   // `audio` exists only after your first click
+    });
     $("btn-random").onclick = () => { S.player = randomBoard(); S.msg = "Fleet reshuffled. Start the battle when ready."; render(); };
-    $("btn-clear").onclick = () => { S.player = newBoard(); S.msg = `Board cleared. Place your Carrier (5 squares).`; render(); };
+    $("btn-clear").onclick = () => { S.player = newBoard(); S.msg = `Board cleared. Place your ${FLEET[0].name} (${FLEET[0].len} squares).`; render(); };
     $("btn-start").onclick = () => {
       if (S.player.ships.length < FLEET.length) return;
       S.phase = "battle"; hover = -1;
@@ -956,18 +993,21 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       S = newGame(S.diff); render();
     };
     $("banner-again").onclick = () => { bannerClosed = false; S = newGame(S.diff); render(); };
-    $("banner-close").onclick = () => { bannerClosed = true; render(); };
+    // When the banner closes, move keyboard focus to a visible button so keyboard players don't get lost.
+    $("banner-close").onclick = () => { bannerClosed = true; render(); $("btn-new").focus(); };
     // Clicking the blurred area outside the card also closes the banner.
     $("banner").onclick = e => { if (e.target.id === "banner") { bannerClosed = true; render(); } };
     document.querySelectorAll('input[name="diff"]').forEach(r => r.addEventListener("change", () => {
       if (S.phase === "place") { S.diff = r.value; render(); }
     }));
     document.addEventListener("keydown", e => {
-      if (e.target.matches("input, textarea")) return;
-      if (e.key === "r" || e.key === "R") rotate();
-      if (e.key === "m" || e.key === "M") toggleSound();
-      if (e.key === "n" || e.key === "N") toggleMusic();
-      if (e.key === "Escape" && S.phase === "over" && !bannerClosed) { bannerClosed = true; render(); }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;   // leave browser shortcuts like Ctrl+R alone
+      if (e.target.matches("input, textarea, select")) return;
+      const k = e.key.toLowerCase();
+      if (k === "r") rotate();
+      if (k === "m") toggleSound();
+      if (k === "n") toggleMusic();
+      if (e.key === "Escape" && S.phase === "over" && !bannerClosed) { bannerClosed = true; render(); $("btn-new").focus(); }
     });
   }
 
