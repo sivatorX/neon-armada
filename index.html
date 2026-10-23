@@ -731,6 +731,12 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     shotSound(r);
     if (allSunk(S.enemy)) return end("player");
     if (r.bomb) S.playerSkips = 1;       // you hit a bomb: you will miss your next turn
+    // BONUS SHOT: you sank a ship, so you fire again (the enemy waits).
+    if (r.sunk) {
+      S.msg = describe("You", i, r) + " Bonus shot! Fire again.";
+      render();
+      return;
+    }
     // The enemy hit a bomb earlier, so it skips this turn and you fire again.
     if (S.enemySkips > 0) {
       S.enemySkips--;
@@ -756,6 +762,13 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     if (allSunk(S.player)) return end("enemy");
     if (r.bomb) S.enemySkips = 1;        // the enemy hit a bomb: it will miss its next turn
     const mine = S.myLine || "";
+    // BONUS SHOT for the enemy too: same rule for both sides, so it is fair.
+    if (r.sunk) {
+      S.msg = `${mine} ${describe("Enemy", i, r)} The enemy gets a bonus shot.${AIM}`;
+      render();
+      scheduleAI();
+      return;
+    }
     // You hit a bomb earlier, so you skip this turn and the enemy fires again.
     if (S.playerSkips > 0) {
       S.playerSkips--;
