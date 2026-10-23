@@ -160,6 +160,15 @@ body {
   60% { transform: scale(1.3); box-shadow: 0 0 0 8px transparent; }
   100% { transform: scale(1); }
 }
+/* Shake the board when a ship sinks. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.sea-box.shake { animation: shake 0.5s ease-in-out; }
 /* ---------- Bombs ----------
    ::after = the bomb picture (an SVG drawing: shiny ball, metal cap, curved fuse).
    ::before = the burning spark at the tip of the fuse. */
@@ -596,6 +605,13 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   };
   // Pick the right sound for the result of a shot.
   const shotSound = r => SFX[r.bomb ? "bomb" : r.sunk ? "sunk" : r.hit ? "hit" : "miss"]();
+   // Shake one board: "player" or "enemy".
+   function shake(side) {
+    const box = $("sea-" + side).parentElement;   // the frame around the board
+    box.classList.remove("shake");
+    void box.offsetWidth;                          // trick: lets the animation play again
+    box.classList.add("shake");
+  }
 
   // ---------- background music (also made with code) ----------
   // How it works: every 50 ms, scheduler() plans the notes for the next 0.2 seconds.
@@ -733,6 +749,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     if (r.bomb) S.playerSkips = 1;       // you hit a bomb: you will miss your next turn
     // BONUS SHOT: you sank a ship, so you fire again (the enemy waits).
     if (r.sunk) {
+      shake("enemy");
       S.msg = describe("You", i, r) + " Bonus shot! Fire again.";
       render();
       return;
@@ -764,6 +781,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     const mine = S.myLine || "";
     // BONUS SHOT for the enemy too: same rule for both sides, so it is fair.
     if (r.sunk) {
+      shake("player");
       S.msg = `${mine} ${describe("Enemy", i, r)} The enemy gets a bonus shot.${AIM}`;
       render();
       scheduleAI();
