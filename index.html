@@ -513,8 +513,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
 
   // ---------- record (per browser) ----------
   function loadRecord() {
-    try { const r = JSON.parse(localStorage.getItem("battleship-record") || "{}"); return { w: r.w | 0, l: r.l | 0 }; }
-    catch { return { w: 0, l: 0 }; }
+    try { const r = JSON.parse(localStorage.getItem("battleship-record") || "{}"); return { w: r.w | 0, l: r.l | 0, streak: r.streak | 0, best: r.best | 0 }; }
+    catch { return { w: 0, l: 0, streak: 0, best: 0 }; }
   }
   function saveRecord(r) { try { localStorage.setItem("battleship-record", JSON.stringify(r)); } catch {} }
   let record = loadRecord();
@@ -753,11 +753,14 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     S.phase = "over"; S.winner = winner; S.busy = false;
     if (winner === "player") {
       record.w++;
+      record.streak++;
+      record.best = Math.max(record.best, record.streak);
       SFX.win();
       const acc = Math.round((S.hits / S.shots) * 100);
       S.msg = `Victory. You sank all five enemy ships in ${S.shots} shots, ${acc}% accuracy.`;
     } else {
       record.l++;
+      record.streak = 0;
       SFX.lose();
       S.msg = "Defeat. Your fleet is gone. Enemy ships still afloat are shown in outline.";
     }
@@ -835,7 +838,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     else if (S.phase === "battle") { chip.textContent = S.busy ? "Enemy turn" : "Your turn"; if (!S.busy) chip.classList.add("turn"); }
     else { chip.textContent = S.winner === "player" ? "Won" : "Lost"; chip.classList.add(S.winner === "player" ? "won" : "lost"); }
     $("msg").textContent = S.msg;
-    $("record").textContent = `${record.w}–${record.l}`;
+    $("record").textContent = `${record.w}–${record.l} · best ${record.best}`;
     $("btn-sound").textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
     $("btn-sound").setAttribute("aria-pressed", String(!muted));
     $("btn-music").textContent = musicOn ? "🎵 Music on" : "🎵 Music off";
