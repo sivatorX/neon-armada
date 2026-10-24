@@ -404,6 +404,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       <div class="btns">
         <button class="b primary" id="banner-again" type="button">Play again</button>
         <button class="b" id="banner-close" type="button">See the boards</button>
+        <button class="b" id="banner-replay" type="button">Watch replay</button>
       </div>
     </div>
   </div>
@@ -605,8 +606,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   };
   // Pick the right sound for the result of a shot.
   const shotSound = r => SFX[r.bomb ? "bomb" : r.sunk ? "sunk" : r.hit ? "hit" : "miss"]();
-   // Shake one board: "player" or "enemy".
-   function shake(side) {
+  // Shake one board: "player" or "enemy".
+  function shake(side) {
     const box = $("sea-" + side).parentElement;   // the frame around the board
     box.classList.remove("shake");
     void box.offsetWidth;                          // trick: lets the animation play again
@@ -743,7 +744,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     const r = fire(S.enemy, i);
     S.shots++; if (r.hit) S.hits++;
     S.lastE = i;
-    S.log.push({ who: "You", c: coord(i), r });
+    S.log.push({ who: "You", c: coord(i), r, i });
     shotSound(r);
     if (allSunk(S.enemy)) return end("player");
     if (r.bomb) S.playerSkips = 1;       // you hit a bomb: you will miss your next turn
@@ -774,7 +775,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     const r = fire(S.player, i);
     if (r.hit) S.taken++;
     S.lastP = i;
-    S.log.push({ who: "Enemy", c: coord(i), r });
+    S.log.push({ who: "Enemy", c: coord(i), r, i });
     shotSound(r);
     if (allSunk(S.player)) return end("enemy");
     if (r.bomb) S.enemySkips = 1;        // the enemy hit a bomb: it will miss its next turn
@@ -798,6 +799,29 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     S.busy = false;
     S.msg = `${mine} ${describe("Enemy", i, r)} Your shot.`;
     render();
+  }
+  // REPLAY: put both boards back to how they were at the start,
+  // then repeat every shot from the log, one every half second.
+  function replay() {
+    if (!S.startP) return;                     // no saved start boards: nothing to replay
+    const id = S.id;                           // remember which game this replay belongs to
+    S.player = JSON.parse(JSON.stringify(S.startP));
+    S.enemy = JSON.parse(JSON.stringify(S.startE));
+    bannerClosed = true;                       // hide the end banner so you can watch
+    let k = 0;                                 // which shot we are on
+    function next() {
+      if (S.id !== id) return;                 // a new game started: stop the replay
+      if (k >= S.log.length) { S.msg = "Replay finished."; render(); return; }
+      const e = S.log[k];
+      fire(e.who === "You" ? S.enemy : S.player, e.i);
+      if (e.who === "You") S.lastE = e.i; else S.lastP = e.i;
+      shotSound(e.r);
+      S.msg = `Replay: shot ${k + 1} of ${S.log.length}`;
+      k++;
+      render();
+      setTimeout(next, 500);                   // wait 0.5 s, then do the next shot
+    }
+    next();
   }
   function end(winner) {
     S.phase = "over"; S.winner = winner; S.busy = false;
@@ -1011,6 +1035,9 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       S.phase = "battle"; hover = -1;
       addBombs(S.player, BOMBS);
       addBombs(S.enemy, BOMBS);
+      // Remember both boards as they are now, so the replay can start from here.
+      S.startP = JSON.parse(JSON.stringify(S.player));
+      S.startE = JSON.parse(JSON.stringify(S.enemy));
       SFX.start();
       S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
       render();
@@ -1029,6 +1056,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("banner-again").onclick = () => { bannerClosed = false; S = newGame(S.diff); render(); };
     // When the banner closes, move keyboard focus to a visible button so keyboard players don't get lost.
     $("banner-close").onclick = () => { bannerClosed = true; render(); $("btn-new").focus(); };
+    $("banner-replay").onclick = replay;
     // Clicking the blurred area outside the card also closes the banner.
     $("banner").onclick = e => { if (e.target.id === "banner") { bannerClosed = true; render(); } };
     document.querySelectorAll('input[name="diff"]').forEach(r => r.addEventListener("change", () => {
