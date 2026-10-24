@@ -225,6 +225,7 @@ body {
 }
 .pv { background: var(--pv); }
 .pv-bad { background: var(--pv-bad); }
+.cell.radar { box-shadow: inset 0 0 0 2px var(--accent); }   /* gold frame on the radar's 3x3 area */
 #sea-player .cell:not(:disabled) { cursor: pointer; }
 #sea-enemy .cell:not(:disabled) { cursor: crosshair; }
 #sea-enemy .cell:not(:disabled):hover { background: var(--sea-hover); }
@@ -382,9 +383,10 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
         <div class="stat"><span>Accuracy</span><b id="s-acc">–</b></div>
         <div class="stat"><span>Hits taken</span><b id="s-taken">0</b></div>
       </div>
-      <div class="btns"><button class="b" id="btn-new" type="button">New game</button></div>
-    </div>
-
+      <div class="btns">
+        <button class="b" id="btn-radar" type="button">Radar (1)</button>
+        <button class="b" id="btn-new" type="button">New game</button>
+      </div>
     <div class="group">
       <h3>Opponent</h3>
       <div class="seg" role="radiogroup" aria-label="Opponent difficulty">
@@ -698,6 +700,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       lastP: -1, lastE: -1, winner: null,
       myLine: "",                      // what your last shot did, kept separately so the enemy's turn can add to it
       playerSkips: 0, enemySkips: 0,   // turns lost to bombs
+      radarLeft: 1, radarMode: false, radarAt: -1,   // radar: uses left, aiming now?, last scanned square
       msg: "Your fleet is deployed at random. Start the battle, or clear the board and place the ships yourself."
     };
   }
@@ -771,8 +774,35 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     return who === "You" ? `You fired ${coord(i)}: hit.` : `Enemy fired ${coord(i)}: hit on your ${r.ship}.`;
   }
 
+  // RADAR: count hidden ship squares in the 3x3 area around square i. Costs your turn.
+  function useRadar(i) {
+    const r = Math.floor(i / N), c = i % N;          // row and column of the square
+    let count = 0;
+    for (let rr = r - 1; rr <= r + 1; rr++) {        // the row above, this row, the row below
+      for (let cc = c - 1; cc <= c + 1; cc++) {      // the column left, this column, the column right
+        if (rr < 0 || rr >= N || cc < 0 || cc >= N) continue;   // outside the board: skip
+        const cell = S.enemy.cells[rr * N + cc];
+        if (cell.ship >= 0 && !cell.shot) count++;   // a ship square not hit yet
+      }
+    }
+    S.radarMode = false; S.radarLeft = 0; S.radarAt = i;
+    S.myLine = `Radar at ${coord(i)}: ${count} hidden ship square${count === 1 ? "" : "s"} nearby.`;
+    // Same turn rules as a normal shot: if the enemy is skipping, you go again.
+    if (S.enemySkips > 0) {
+      S.enemySkips--;
+      S.msg = S.myLine + " The enemy is still recovering from the bomb. Fire again.";
+      render();
+      return;
+    }
+    S.msg = S.myLine + AIM;
+    S.busy = true;
+    render();
+    scheduleAI();
+  }
   function playerFire(i) {
     if (S.phase !== "battle" || S.busy || S.enemy.cells[i].shot) return;
+    if (S.radarMode) return useRadar(i);   // radar is aiming: scan instead of firing
+    S.radarAt = -1;                         // a normal shot clears the old radar highlight
     const r = fire(S.enemy, i);
     S.shots++; if (r.hit) S.hits++;
     S.lastE = i;
@@ -932,6 +962,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
         label += s ? (isSunk(s) ? `, sunk ${s.name}` : ", hit") : cell.bomb ? ", bomb exploded" : ", miss";
       } else label += ", not fired on";
       if (i === S.lastE) cls.push("ping");
+      // Radar frame: is this square at most 1 row and 1 column away from the scanned square?
+      if (S.radarAt >= 0 && Math.abs(Math.floor(i / N) - Math.floor(S.radarAt / N)) <= 1 && Math.abs(i % N - S.radarAt % N) <= 1) cls.push("radar");
       setCell(eBtns[i], cls, label, S.phase !== "battle" || S.busy || cell.shot);
     });
 
@@ -979,6 +1011,10 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("s-hits").textContent = S.hits;
     $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
     $("s-taken").textContent = `${S.taken}/${TOTAL_SQUARES}`;
+    const rb = $("btn-radar");
+    rb.textContent = S.radarMode ? "Cancel radar" : `Radar (${S.radarLeft})`;
+    rb.disabled = S.phase !== "battle" || S.busy || S.radarLeft < 1;
+    rb.classList.toggle("primary", S.radarMode);
     const nb = $("btn-new");
     nb.classList.toggle("primary", S.phase === "over" || abandonArmed);
     nb.textContent = S.phase === "over" ? "Play again" : abandonArmed ? "Click again to abandon" : "New game";
@@ -1075,6 +1111,12 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       S.startE = JSON.parse(JSON.stringify(S.enemy));
       SFX.start();
       S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
+      render();
+    };
+    $("btn-radar").onclick = () => {
+      if (S.phase !== "battle" || S.busy || S.radarLeft < 1) return;   // only on your turn, if you still have it
+      S.radarMode = !S.radarMode;                                       // switch: on → off, off → on
+      S.msg = S.radarMode ? "Radar ready: click a square on the enemy board." : "Radar cancelled. Your shot.";
       render();
     };
     $("btn-new").onclick = () => {
