@@ -385,8 +385,10 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       </div>
       <div class="btns">
         <button class="b" id="btn-radar" type="button">Radar (1)</button>
+        <button class="b" id="btn-heat" type="button" aria-pressed="false">Show AI thinking</button>
         <button class="b" id="btn-new" type="button">New game</button>
       </div>
+      <p class="hint" id="heat-note" hidden>Red on your board = where a smart AI would aim. Darker = more likely a ship is there.</p>
     <div class="group">
       <h3>Opponent</h3>
       <div class="seg" role="radiogroup" aria-label="Opponent difficulty">
@@ -504,8 +506,9 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     return pool[rnd(pool.length)];
   }
 
-  // Count every way the remaining ships could still lie; shoot the square most of them cover.
-  function pickHard(b) {
+  // Count every way the remaining ships could still lie. Returns a score for every square:
+  // the bigger the score, the more likely a ship is there. (Also used by "Show AI thinking".)
+  function scoreBoard(b) {
     const { hitOpen, blocked } = knowledge(b);
     const anyOpen = b.cells.some((c, i) => hitOpen(i));
     const score = new Array(N * N).fill(0);
@@ -520,6 +523,12 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
         cells.forEach(i => { if (!b.cells[i].shot) score[i] += w; });
       }
     }
+    return score;
+  }
+
+  // Hard AI: shoot the square with the highest score.
+  function pickHard(b) {
+    const score = scoreBoard(b);
     let best = -1, picks = [];
     score.forEach((v, i) => {
       if (b.cells[i].shot) return;
@@ -690,6 +699,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   }
 
   // ---------- state ----------
+  let showHeat = false;               // "Show AI thinking" switch
   let S, hover = -1, abandonArmed = false, abandonTimer = 0, bannerClosed = false;
   function newGame(diff) {
     return {
@@ -939,6 +949,14 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       if (i === S.lastP) cls.push("ping");
       setCell(pBtns[i], cls, label, !spec);
     });
+    // AI THINKING: tint each square red by how likely the Hard AI thinks a ship is there.
+    const heat = showHeat && S.phase !== "place" ? scoreBoard(S.player) : null;
+    const max = heat ? Math.max(1, ...heat) : 1;
+    pBtns.forEach((el, i) => {
+      // An inset shadow paints the red ON TOP of the cell, so the sea colour and bomb glow stay underneath.
+      const a = heat ? (0.06 + 0.74 * heat[i] / max).toFixed(2) : 0;
+      el.style.boxShadow = heat && !S.player.cells[i].shot ? `inset 0 0 0 100px rgba(210, 63, 36, ${a})` : "";
+    });
   }
 
   function render() {
@@ -1011,6 +1029,9 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("s-hits").textContent = S.hits;
     $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
     $("s-taken").textContent = `${S.taken}/${TOTAL_SQUARES}`;
+    $("btn-heat").classList.toggle("primary", showHeat);   // yellow while it is on
+    $("btn-heat").setAttribute("aria-pressed", String(showHeat));
+    $("heat-note").hidden = !showHeat;
     const rb = $("btn-radar");
     rb.textContent = S.radarMode ? "Cancel radar" : `Radar (${S.radarLeft})`;
     rb.disabled = S.phase !== "battle" || S.busy || S.radarLeft < 1;
@@ -1113,6 +1134,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
       render();
     };
+    $("btn-heat").onclick = () => { showHeat = !showHeat; render(); };
     $("btn-radar").onclick = () => {
       if (S.phase !== "battle" || S.busy || S.radarLeft < 1) return;   // only on your turn, if you still have it
       S.radarMode = !S.radarMode;                                       // switch: on → off, off → on
@@ -1152,6 +1174,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
 
   function start(data) {
     S = data && data.state ? data.state : newGame("hard");
+    S = Object.assign({ radarLeft: 1, radarMode: false, radarAt: -1 }, S);   // older saved games had no radar
     wire();
     render();
     if (S.phase === "battle" && S.busy) scheduleAI();
