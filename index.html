@@ -9,69 +9,53 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: chart-table — header strip, two plotting boards side by side, a console below. Stacks on phones. */
+/* NEON NIGHT theme. Every colour in the game comes from these variables:
+   change one here and it changes everywhere. */
 :root {
-  --bg: #e7eeed;
-  --panel: #f5f8f7;
-  --line: #c3d3d6;
-  --sea: #d3e3e7;
-  --sea-hover: #bfd6dc;
-  --grid: #a4bec6;
-  --ink: #12212b;
-  --muted: #536d77;
-  --ship: #4c5c66;
-  --ghost: rgba(76, 92, 102, 0.28);
-  --sunk: #7d2a1c;
-  --hit: #d23f24;
-  --hit-ring: #ffd9cf;
-  --miss: #ffffff;
-  --miss-ring: #7d98a2;
-  --pv: #8fb3a1;
-  --pv-bad: #e6a99c;
-  --flash: rgba(184, 131, 42, 0.55);
-  --accent: #a8741f;
-  --accent-ink: #ffffff;
-  --focus: #1c64a8;
-  --card: #fbfcfc;
-  --chart: rgba(18, 33, 43, 0.045);
-  --sheen: rgba(255, 255, 255, 0.35);
-  --hull-hi: #71838d;
-  --glow: rgba(210, 63, 36, 0.5);
-  --win: #2f7d55;
-  --bomb-glow: rgba(255, 150, 60, 0);
-  --shadow: 0 1px 2px rgba(18, 33, 43, 0.06), 0 10px 28px rgba(18, 33, 43, 0.08);
+  --bg: #050a18;            /* page background: deep night blue */
+  --panel: #0b1630;
+  --line: #1c2f5e;
+  --sea: #071a3a;           /* water */
+  --sea-hover: #0e2b5c;
+  --grid: #12346e;          /* thin lines between squares */
+  --ink: #e8f6ff;           /* main text */
+  --muted: #7d9cd0;
+  --ship: #19e0a8;          /* ships: neon mint */
+  --hull-hi: #9dffe4;
+  --ghost: rgba(25, 224, 168, 0.28);
+  --sunk: #c0156e;
+  --hit: #ff2e88;           /* hits: neon pink */
+  --hit-ring: #4a0b2c;
+  --miss: #9fe3ff;          /* misses: light blue */
+  --miss-ring: #2b78c2;
+  --pv: #0d6f62;
+  --pv-bad: #7a1846;
+  --flash: rgba(58, 216, 255, 0.45);
+  --accent: #3ad8ff;        /* buttons, frames, "your turn": electric cyan */
+  --accent-ink: #02101f;
+  --focus: #ffe45e;
+  --card: rgba(9, 18, 42, 0.86);
+  --chart: rgba(58, 216, 255, 0.05);
+  --sheen: rgba(140, 225, 255, 0.10);
+  --glow: rgba(255, 46, 136, 0.75);
+  --win: #3dffa2;
+  --bomb-glow: rgba(255, 170, 60, 0.55);
+  --neon: 0 0 6px rgba(58, 216, 255, 0.7), 0 0 18px rgba(58, 216, 255, 0.35);   /* glow used on buttons */
+  --shadow: 0 0 0 1px rgba(58, 216, 255, 0.06), 0 14px 40px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
 
   --display: "Saira Stencil One", Impact, "Arial Narrow", sans-serif;
   --label: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
   --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0a161d; --panel: #0f212b; --line: #1f3a48; --sea: #10293a; --sea-hover: #183a50;
-    --grid: #22475a; --ink: #dbe7ea; --muted: #86a2ad; --ship: #8fa3ad; --ghost: rgba(143, 163, 173, 0.3);
-    --sunk: #b54a35; --hit: #ff6847; --hit-ring: #5a1d12; --miss: #e9f1f3; --miss-ring: #3e6474;
-    --pv: #3f7a62; --pv-bad: #7a3426; --flash: rgba(224, 176, 74, 0.5); --accent: #e0b04a; --accent-ink: #1a1305; --focus: #6fb4f0;
-    --card: #0d1e27; --chart: rgba(219, 231, 234, 0.035); --sheen: rgba(255, 255, 255, 0.06); --hull-hi: #b9c8cf;
-    --glow: rgba(255, 104, 71, 0.55); --win: #5cc08a; --bomb-glow: rgba(255, 180, 90, 0.35); --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0a161d; --panel: #0f212b; --line: #1f3a48; --sea: #10293a; --sea-hover: #183a50;
-  --grid: #22475a; --ink: #dbe7ea; --muted: #86a2ad; --ship: #8fa3ad; --ghost: rgba(143, 163, 173, 0.3);
-  --sunk: #b54a35; --hit: #ff6847; --hit-ring: #5a1d12; --miss: #e9f1f3; --miss-ring: #3e6474;
-  --pv: #3f7a62; --pv-bad: #7a3426; --flash: rgba(224, 176, 74, 0.5); --accent: #e0b04a; --accent-ink: #1a1305; --focus: #6fb4f0;
-  --card: #0d1e27; --chart: rgba(219, 231, 234, 0.035); --sheen: rgba(255, 255, 255, 0.06); --hull-hi: #b9c8cf;
-  --glow: rgba(255, 104, 71, 0.55); --win: #5cc08a; --bomb-glow: rgba(255, 180, 90, 0.35); --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
-  color-scheme: dark;
-}
-
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 /* Background: a soft glow at the top and faint lines like a sea chart. */
 body {
   background:
-    radial-gradient(1100px 520px at 50% -8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    radial-gradient(1100px 520px at 50% -8%, rgba(58, 216, 255, 0.16), transparent 70%),
+    radial-gradient(900px 600px at 100% 100%, rgba(255, 46, 136, 0.10), transparent 70%),
     linear-gradient(var(--chart) 1px, transparent 1px) 0 0 / 28px 28px,
     linear-gradient(90deg, var(--chart) 1px, transparent 1px) 0 0 / 28px 28px,
     var(--bg);
@@ -127,7 +111,15 @@ body {
 .sea { display: grid; grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(10, 1fr); gap: 1px; background: var(--grid); border: 1px solid var(--grid); aspect-ratio: 1; width: 100%; max-width: 100%; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); }
 /* Two see-through layers on top of the water: a soft shine, and a light band that slowly sweeps across. */
 .sea-box::before, .sea-box::after { content: ""; position: absolute; inset: 0; border-radius: 10px; pointer-events: none; z-index: 1; }
-.sea-box::before { background: linear-gradient(160deg, var(--sheen), transparent 45%, rgba(0, 30, 50, 0.08)); }
+/* Waves: two soft ripple patterns drift slowly across the water in different directions. */
+.sea-box::before {
+  background:
+    repeating-radial-gradient(ellipse 60% 22% at 30% 40%, transparent 0 10px, rgba(120, 220, 255, 0.08) 12px, transparent 16px),
+    repeating-radial-gradient(ellipse 70% 25% at 70% 70%, transparent 0 12px, rgba(120, 220, 255, 0.06) 14px, transparent 19px);
+  background-size: 200% 200%, 220% 220%;
+  animation: waves 14s ease-in-out infinite alternate;
+}
+@keyframes waves { from { background-position: 0% 0%, 100% 100%; } to { background-position: 100% 60%, 0% 30%; } }
 .sea-box::after { background: linear-gradient(115deg, transparent 42%, var(--sheen) 50%, transparent 58%) 0 0 / 300% 100%; animation: shimmer 10s linear infinite; opacity: 0.6; }
 @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -150% 0; } }
 .veil { z-index: 2; border-radius: 10px; backdrop-filter: blur(2px); position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; background: color-mix(in srgb, var(--bg) 55%, transparent); font-family: var(--label); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 14px; color: var(--ink); }
@@ -295,6 +287,44 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(24px) scale(0.94); } }
 
+/* ---------- neon glow ---------- */
+.top { border-bottom-color: var(--accent); box-shadow: 0 10px 16px -14px var(--accent); }
+.top h1 { text-shadow: 0 0 8px rgba(58, 216, 255, 0.6), 0 0 26px rgba(58, 216, 255, 0.35); }
+.sea { box-shadow: 0 0 0 1px rgba(58, 216, 255, 0.18), 0 0 24px rgba(58, 216, 255, 0.12); }
+.hull::before { filter: drop-shadow(0 0 4px rgba(25, 224, 168, 0.6)); }
+.side { backdrop-filter: blur(6px); }
+button.b { border-color: rgba(58, 216, 255, 0.55); }
+button.b:hover:not(:disabled) { box-shadow: var(--neon); }
+button.b.primary { box-shadow: var(--neon); }
+.chip.won { background: var(--win); color: var(--accent-ink); }
+
+/* ---------- explosion particles (made in JavaScript by burst()) ---------- */
+.fx { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+.fx i { position: absolute; border-radius: 50%; }
+.fx .spark { width: 5px; height: 5px; background: #fff; box-shadow: 0 0 6px 2px var(--c), 0 0 14px 4px var(--c); }
+.fx .smoke { width: 18px; height: 18px; background: radial-gradient(circle, rgba(170, 180, 210, 0.45), transparent 70%); }
+
+/* ---------- splash screen ---------- */
+.splash {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; text-align: center;
+  background:
+    radial-gradient(800px 500px at 50% 40%, rgba(58, 216, 255, 0.16), transparent 70%),
+    radial-gradient(600px 400px at 85% 90%, rgba(255, 46, 136, 0.14), transparent 70%),
+    var(--bg);
+  transition: opacity 0.5s, visibility 0.5s;
+}
+.splash.leaving { opacity: 0; visibility: hidden; }
+.splash-card { display: grid; gap: 14px; justify-items: center; max-width: 420px; }
+.splash .emblem { width: 120px; height: 120px; filter: drop-shadow(0 0 12px var(--accent)); }
+.splash h1 {
+  margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(3rem, 12vw, 5.5rem); letter-spacing: 0.06em; line-height: 1;
+  text-shadow: 0 0 10px rgba(58, 216, 255, 0.8), 0 0 30px rgba(58, 216, 255, 0.5), 0 0 60px rgba(255, 46, 136, 0.35);
+  animation: flicker 3s infinite;
+}
+@keyframes flicker { 0%, 92%, 100% { opacity: 1; } 94% { opacity: 0.6; } 96% { opacity: 1; } 97% { opacity: 0.75; } }
+.splash p { margin: 0; color: var(--muted); }
+#splash-play { font-size: 20px; padding: 12px 34px; }
+
 @media (max-width: 760px) {
   .theatre, .console { grid-template-columns: minmax(0, 1fr); }
   .wrap[data-phase="battle"] #side-enemy { order: -1; }
@@ -307,6 +337,21 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 </style>
+
+<div class="splash" id="splash" role="dialog" aria-modal="true" aria-labelledby="splash-title">
+  <div class="splash-card">
+    <svg class="emblem" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2.5"/>
+      <circle cx="20" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="2" opacity="0.6"/>
+      <path class="sweep" d="M20 20 L20 2 A18 18 0 0 1 35.6 11 Z" fill="currentColor" opacity="0.35"/>
+      <circle cx="20" cy="20" r="2.5" fill="currentColor"/>
+    </svg>
+    <h1 id="splash-title">Battleship</h1>
+    <p>Find and sink the enemy fleet. Watch out for hidden bombs.</p>
+    <button class="b primary" id="splash-play" type="button">&#9654; Play</button>
+    <p class="hint">Press Enter to start</p>
+  </div>
+</div>
 
 <div class="wrap" id="app">
   <header class="top">
@@ -401,6 +446,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       <ol class="log" id="log"></ol>
     </div>
   </section>
+
+  <div class="fx" id="fx" aria-hidden="true"></div>
 
   <div class="banner" id="banner" hidden>
     <div class="banner-card" role="dialog" aria-modal="true" aria-labelledby="banner-title">
@@ -627,6 +674,36 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     box.classList.add("shake");
   }
 
+  // ---------- explosion particles ----------
+  // Sparks fly out of the square and fade; a few smoke puffs drift up.
+  // el.animate() is the Web Animations API: animation from JavaScript, no CSS @keyframes needed.
+  const calm = window.matchMedia("(prefers-reduced-motion: reduce)");   // people who turned animations off
+  function burst(el, r) {
+    if (!(r.hit || r.bomb) || calm.matches || !el.animate) return;      // only hits and bombs explode
+    const box = el.getBoundingClientRect();                             // where the square is on the screen
+    const x = box.left + box.width / 2, y = box.top + box.height / 2;   // its centre
+    const color = r.bomb ? "#ffaa3c" : "#ff2e88";                       // orange for bombs, pink for hits
+    const sparks = r.bomb ? 26 : r.sunk ? 22 : 14;                      // bigger booms for bombs and sunk ships
+    for (let k = 0; k < sparks + 5; k++) {
+      const p = document.createElement("i");
+      const smoke = k >= sparks;                                        // the last 5 pieces are smoke
+      p.className = smoke ? "smoke" : "spark";
+      p.style.left = x + "px"; p.style.top = y + "px";
+      p.style.setProperty("--c", color);
+      $("fx").appendChild(p);
+      const angle = Math.random() * Math.PI * 2;                        // a random direction
+      const dist = smoke ? 10 + Math.random() * 20 : 25 + Math.random() * (r.bomb || r.sunk ? 70 : 45);
+      const dx = Math.cos(angle) * dist, dy = Math.sin(angle) * dist + (smoke ? -25 : 0);   // smoke floats up
+      const ms = smoke ? 1100 : 500 + Math.random() * 300;              // how long this piece flies
+      p.animate(
+        [{ transform: "translate(-50%, -50%) scale(1)", opacity: 1 },
+         { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${smoke ? 2.4 : 0.3})`, opacity: 0 }],
+        { duration: ms, easing: "cubic-bezier(0.1, 0.8, 0.3, 1)", fill: "forwards" }
+      );
+      setTimeout(() => p.remove(), ms + 50);                            // clean up when the piece has faded
+    }
+  }
+
   // ---------- background music (also made with code) ----------
   // How it works: every 50 ms, scheduler() plans the notes for the next 0.2 seconds.
   // Planning a little ahead keeps the rhythm steady even if the page is busy.
@@ -818,6 +895,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     S.lastE = i;
     S.log.push({ who: "You", c: coord(i), r, i });
     shotSound(r);
+    burst(eBtns[i], r);
     if (allSunk(S.enemy)) return end("player");
     if (r.bomb) S.playerSkips = 1;       // you hit a bomb: you will miss your next turn
     // BONUS SHOT: you sank a ship, so you fire again (the enemy waits).
@@ -849,6 +927,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     S.lastP = i;
     S.log.push({ who: "Enemy", c: coord(i), r, i });
     shotSound(r);
+    burst(pBtns[i], r);
     if (allSunk(S.player)) return end("enemy");
     if (r.bomb) S.enemySkips = 1;        // the enemy hit a bomb: it will miss its next turn
     const mine = S.myLine || "";
@@ -888,6 +967,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       fire(e.who === "You" ? S.enemy : S.player, e.i);
       if (e.who === "You") S.lastE = e.i; else S.lastP = e.i;
       shotSound(e.r);
+      burst(e.who === "You" ? eBtns[e.i] : pBtns[e.i], e.r);
       S.msg = `Replay: shot ${k + 1} of ${S.log.length}`;
       k++;
       render();
@@ -955,7 +1035,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     pBtns.forEach((el, i) => {
       // An inset shadow paints the red ON TOP of the cell, so the sea colour and bomb glow stay underneath.
       const a = heat ? (0.06 + 0.74 * heat[i] / max).toFixed(2) : 0;
-      el.style.boxShadow = heat && !S.player.cells[i].shot ? `inset 0 0 0 100px rgba(210, 63, 36, ${a})` : "";
+      el.style.boxShadow = heat && !S.player.cells[i].shot ? `inset 0 0 0 100px rgba(255, 46, 136, ${a})` : "";
     });
   }
 
@@ -1134,7 +1214,13 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
       render();
     };
-    $("btn-heat").onclick = () => { showHeat = !showHeat; render(); };
+    // Splash screen: Play hides it (this click also lets the music start).
+    $("splash-play").onclick = () => {
+      $("splash").classList.add("leaving");
+      SFX.start();
+      setTimeout(() => ($("splash").hidden = true), 500);
+    };
+    $("btn-heat").onclick =() => { showHeat = !showHeat; render(); };
     $("btn-radar").onclick = () => {
       if (S.phase !== "battle" || S.busy || S.radarLeft < 1) return;   // only on your turn, if you still have it
       S.radarMode = !S.radarMode;                                       // switch: on → off, off → on
@@ -1177,6 +1263,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     S = Object.assign({ radarLeft: 1, radarMode: false, radarAt: -1 }, S);   // older saved games had no radar
     wire();
     render();
+    if (data && data.state) $("splash").hidden = true;   // coming back to a saved game: skip the splash
+    else $("splash-play").focus();                       // so Enter starts the game
     if (S.phase === "battle" && S.busy) scheduleAI();
   }
   window.claude?.hot?.snapshot?.(() => ({ state: S }));
