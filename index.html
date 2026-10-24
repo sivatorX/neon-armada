@@ -365,6 +365,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
       <div class="btns">
         <button class="b" id="btn-rotate" type="button">Rotate</button>
         <button class="b" id="btn-random" type="button">Shuffle</button>
+        <button class="b" id="btn-save" type="button">Save layout</button>
+        <button class="b" id="btn-load" type="button">Load layout</button>
         <button class="b" id="btn-clear" type="button">Clear</button>
         <button class="b primary" id="btn-start" type="button">Start battle</button>
       </div>
@@ -716,6 +718,36 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     return sea;
   }
 
+  // ---------- saved layouts ----------
+  const LAYOUT_KEY = "battleship-layout";
+
+  // Save each ship as: its first square + its direction.
+  function saveLayout() {
+    const data = S.player.ships.map(s => ({ at: s.cells[0], dir: s.dir }));
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(data)); S.msg = "Layout saved."; }
+    catch { S.msg = "Sorry, this browser can't save the layout."; }
+    render();
+  }
+
+  // Load the saved layout. Check everything: saved data could be old or broken.
+  function loadLayout() {
+    let data = null;
+    try { data = JSON.parse(localStorage.getItem(LAYOUT_KEY)); } catch {}
+    if (!Array.isArray(data) || data.length !== FLEET.length) { S.msg = "No saved layout yet."; render(); return; }
+    const b = newBoard();
+    for (let k = 0; k < FLEET.length; k++) {
+      const s = data[k] || {};
+      const dir = s.dir === "v" ? "v" : "h";
+      const ok = Number.isInteger(s.at) && s.at >= 0 && s.at < N * N;
+      const cells = ok ? cellsFor(FLEET[k].len, Math.floor(s.at / N), s.at % N, dir) : null;
+      if (!fits(b, cells)) { S.msg = "The saved layout is broken. Save a new one."; render(); return; }
+      addShip(b, FLEET[k], cells, dir);
+    }
+    S.player = b;
+    S.msg = "Layout loaded. Start the battle when ready.";
+    render();
+  }
+
   function placeAt(i) {
     const spec = nextSpec();
     if (!spec) return;
@@ -942,6 +974,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     $("btn-rotate").disabled = !spec;
     $("btn-clear").disabled = S.player.ships.length === 0;
     $("btn-start").disabled = S.player.ships.length < FLEET.length;
+    $("btn-save").disabled = S.player.ships.length < FLEET.length;
     $("s-shots").textContent = S.shots;
     $("s-hits").textContent = S.hits;
     $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
@@ -1030,6 +1063,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
     });
     $("btn-random").onclick = () => { S.player = randomBoard(); S.msg = "Fleet reshuffled. Start the battle when ready."; render(); };
     $("btn-clear").onclick = () => { S.player = newBoard(); S.msg = `Board cleared. Place your ${FLEET[0].name} (${FLEET[0].len} squares).`; render(); };
+    $("btn-save").onclick = saveLayout;
+    $("btn-load").onclick = loadLayout;
     $("btn-start").onclick = () => {
       if (S.player.ships.length < FLEET.length) return;
       S.phase = "battle"; hover = -1;
