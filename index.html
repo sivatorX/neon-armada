@@ -149,9 +149,23 @@ body {
 .cell.hull.ghost[data-ship]::before { opacity: 0.45; filter: grayscale(0.7); }                         /* enemy ships shown after the game */
 .cell.hull.sunk[data-ship]::before { filter: sepia(0.8) hue-rotate(-45deg) saturate(2.5) brightness(0.55) drop-shadow(0 0 4px rgba(255, 46, 136, 0.6)); }   /* burnt and sinking */
 .miss::after { display: block; inset: 38%; border-radius: 50%; background: var(--miss); box-shadow: 0 0 0 1.5px var(--miss-ring); }
-.hit::after { display: block; inset: 28%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffc2b0, var(--hit) 55%); box-shadow: 0 0 0 2px var(--hit-ring), 0 0 10px 1px var(--glow); }
+/* A hit burns: a flickering flame with a neon-pink glow. */
+.hit::after {
+  display: block; inset: 20%; border-radius: 50% 50% 45% 45%;
+  background: radial-gradient(circle at 50% 62%, #fff6c8 0 12%, #ffd36b 24%, #ff8a2a 42%, var(--hit) 62%, transparent 72%);
+  box-shadow: 0 0 14px 3px var(--glow);
+  animation: flame 0.35s ease-in-out infinite alternate;
+}
+@keyframes flame { from { transform: scale(0.88) rotate(-5deg); filter: brightness(1); } to { transform: scale(1.08) rotate(5deg); filter: brightness(1.4); } }
+/* A sunk ship stops burning and smokes instead (each square starts at a different moment). */
+.sunk.hit::after {
+  inset: 6%; border-radius: 50%; box-shadow: none;
+  background: radial-gradient(circle, rgba(170, 180, 195, 0.6), rgba(100, 110, 125, 0.3) 45%, transparent 70%);
+  animation: smoke 2.4s ease-out infinite; animation-delay: calc(var(--k, 0) * -0.7s);
+}
+@keyframes smoke { 0% { transform: translateY(15%) scale(0.6); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-40%) scale(1.5); opacity: 0; } }
 /* The newest shot: hits explode, misses splash. */
-.last-shot.hit::after { animation: boom 0.6s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.last-shot.hit:not(.sunk)::after { animation: boom 0.6s cubic-bezier(0.2, 1.5, 0.4, 1), flame 0.35s ease-in-out 0.6s infinite alternate; }
 .last-shot.miss::after { animation: splash 0.6s ease-out; }
 @keyframes boom {
   0% { transform: scale(0); }
@@ -1595,12 +1609,53 @@ button.b.primary { box-shadow: var(--neon); }
       turret(150, 12) + bridge(82, 40, 26) + funnel(62)
   };
 
+  // ---------- living details (SVG animations: <animate> changes a value over time, again and again) ----------
+  // Blinking light with a soft halo.
+  const blink = (x, y, c, d = "1.6s", b = "0s") =>
+    `<circle cx="${x}" cy="${y}" r="7" fill="${c}" opacity="0.3"><animate attributeName="opacity" values="0.35;0;0.35" dur="${d}" begin="${b}" repeatCount="indefinite"/></circle>` +
+    `<circle cx="${x}" cy="${y}" r="3.2" fill="${c}"><animate attributeName="opacity" values="1;0.15;1" dur="${d}" begin="${b}" repeatCount="indefinite"/></circle>`;
+  // Ships carry a red light on the left side and a green one on the right.
+  const navLights = (x, top, bot) => blink(x, top, "#ff3b5c") + blink(x, bot, "#2dff8f", "1.6s", "0.8s");
+  // A radar antenna that spins.
+  const radar = (x, y = 50) =>
+    `<g transform="translate(${x} ${y})"><rect x="-1.8" y="-10" width="3.6" height="20" rx="1.8" fill="#d6e6f0">` +
+    `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="2.5s" repeatCount="indefinite"/></rect><circle r="2.6" fill="#3ad8ff"/></g>`;
+  // Smoke puffs from a funnel, blown towards the back of the ship.
+  const smoke = (x, y = 50) => [0, 0.8, 1.6].map(b =>
+    `<circle cx="${x}" cy="${y}" r="4" fill="#b8c6d2" opacity="0">` +
+    `<animate attributeName="cx" from="${x}" to="${x - 70}" dur="2.4s" begin="${b}s" repeatCount="indefinite"/>` +
+    `<animate attributeName="r" from="4" to="13" dur="2.4s" begin="${b}s" repeatCount="indefinite"/>` +
+    `<animate attributeName="opacity" values="0.55;0" dur="2.4s" begin="${b}s" repeatCount="indefinite"/></circle>`).join("");
+  // Runway lights on the carrier that run towards the bow, one after another.
+  const runway = W => {
+    let s = "";
+    for (let x = 40, k = 0; x < W - 60; x += 36, k++) {
+      const a = `<animate attributeName="opacity" values="0.15;1;0.15" dur="1.4s" begin="${(k * 0.12).toFixed(2)}s" repeatCount="indefinite"/>`;
+      s += `<circle cx="${x}" cy="14" r="2.4" fill="#ffe45e">${a}</circle><circle cx="${x}" cy="86" r="2.4" fill="#ffe45e">${a}</circle>`;
+    }
+    return s;
+  };
+  // Bubble rings behind the submarine.
+  const bubbles = [0, 0.9].map(b =>
+    `<circle cx="14" cy="50" r="3" fill="none" stroke="#e8f6ff" stroke-width="1.5" opacity="0">` +
+    `<animate attributeName="r" from="3" to="16" dur="1.8s" begin="${b}s" repeatCount="indefinite"/>` +
+    `<animate attributeName="opacity" values="0.6;0" dur="1.8s" begin="${b}s" repeatCount="indefinite"/></circle>`).join("");
+  const LIFE = {
+    Carrier: W => runway(W) + radar(325, 26) + smoke(362, 26),
+    Battleship: W => navLights(W - 60, 26, 74) + radar(203) + smoke(146) + blink(232, 50, "#ffffff", "2.2s"),
+    Cruiser: W => navLights(W - 60, 30, 70) + radar(140) + smoke(100),
+    Submarine: () => bubbles + blink(130, 50, "#ff3b5c", "1.2s"),
+    Destroyer: W => navLights(W - 38, 33, 67) + radar(100) + smoke(62)
+  };
+
   const shipCache = {};
-  function shipImage(name, dir) {
-    const key = name + dir;
+  // still = no moving lights or smoke (for sunk ships, enemy ships, and people who turned animations off).
+  function shipImage(name, dir, still) {
+    still = still || calm.matches;
+    const key = name + dir + (still ? "-still" : "");
     if (shipCache[key]) return shipCache[key];
     const len = (FLEET.find(f => f.name === name) || { len: 2 }).len, W = len * 100;
-    const art = SHIP_ART[name] ? SHIP_ART[name](W) : hull(W, 28, 72);
+    const art = (SHIP_ART[name] ? SHIP_ART[name](W) : hull(W, 28, 72)) + (!still && LIFE[name] ? LIFE[name](W) : "");
     const body = dir === "h" ? art : `<g transform="translate(100 0) rotate(90)">${art}</g>`;   // turn it for vertical ships
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dir === "h" ? W : 100} ${dir === "h" ? 100 : W}" preserveAspectRatio="none">${DEFS}${body}</svg>`;
     return (shipCache[key] = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
@@ -1608,14 +1663,16 @@ button.b.primary { box-shadow: var(--neon); }
   // Give a square its slice of the ship picture (or remove it if there is no ship to show).
   function paintShip(el, s, i) {
     if (!s) {
-      if (el.dataset.ship) { delete el.dataset.ship; ["--img", "--bs", "--bp"].forEach(v => el.style.removeProperty(v)); }
+      if (el.dataset.ship) { delete el.dataset.ship; ["--img", "--bs", "--bp", "--k"].forEach(v => el.style.removeProperty(v)); }
       return;
     }
-    const k = s.cells.indexOf(i), key = s.name + s.dir + k;
+    const still = isSunk(s) || el.parentElement.id === "sea-enemy";   // sunk or enemy ships: lights off
+    const k = s.cells.indexOf(i), key = s.name + s.dir + k + (still ? "s" : "");
     if (k < 0 || el.dataset.ship === key) return;               // already showing the right slice
     el.dataset.ship = key;
     const pos = s.len > 1 ? (k / (s.len - 1)) * 100 : 0;      // slice k of len: 0%, 25%, 50%... along the ship
-    el.style.setProperty("--img", shipImage(s.name, s.dir));
+    el.style.setProperty("--img", shipImage(s.name, s.dir, still));
+    el.style.setProperty("--k", k);                             // so smoke on each square starts at a different time
     el.style.setProperty("--bs", s.dir === "h" ? `${s.len * 100}% 100%` : `100% ${s.len * 100}%`);
     el.style.setProperty("--bp", s.dir === "h" ? `${pos}% 0%` : `0% ${pos}%`);
   }
