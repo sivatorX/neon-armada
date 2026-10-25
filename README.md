@@ -10,7 +10,7 @@ A neon-styled Battleship game that runs in the browser: one HTML file, no instal
 - **Bonus shot:** sink a ship and you fire again.
 - **Radar:** a one-use power-up that counts hidden ship squares in a 3×3 area.
 - **Show AI thinking:** a heat map of where the AI thinks your ships are.
-- **Online 2-player:** create a room, send the 4-letter code to a friend and play over the internet (WebRTC via PeerJS).
+- **Online 2-player:** create a room, send the 4-letter code to a friend and play over the internet (direct WebRTC via PeerJS, with an automatic backup connection through a public MQTT server for mobile data and strict networks).
 - **Expert opponent:** plays like Hard and has its own one-time radar.
 - **Turn timer:** an optional 10 seconds per shot. Too slow and you lose the turn.
 - **Achievements:** 10 medals to unlock, from "First victory" to "Grand Admiral".

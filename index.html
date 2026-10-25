@@ -555,6 +555,8 @@ button.b.primary { box-shadow: var(--neon); }
 
 <!-- PeerJS: connects two browsers directly (WebRTC). Needs internet only for online play. -->
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<!-- MQTT: the backup way to talk, through a public message server. Works on mobile data. -->
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
 (() => {
   const N = 10, ROWS = "ABCDEFGHIJ";
@@ -1321,15 +1323,29 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   function hostRoom() {
-    if (!window.Peer) return onlineProblem("Online play needs an internet connection. Check it and reload the page.");
+    if (!window.Peer && !window.mqtt) return onlineProblem("Online play needs an internet connection. Check it and reload the page.");
     leaveOnline();
     const code = roomCode();
     S.online = { role: "host", code, connected: false, meReady: false, themReady: false, pending: -1 };
     S.msg = "Opening a room…";
-    peer = new Peer(ROOM_PREFIX + code);
-    peer.on("open", () => { if (!S.online) return; S.msg = `Room ${code} is open. Send the code to your friend.`; render(); });
-    peer.on("connection", c => { if (conn) c.close(); else listen(c); });   // only one friend per room
-    peer.on("error", e => onlineProblem(e.type === "unavailable-id" ? "That room code is taken. Press Create room again." : `Online problem (${e.type}). Try again.`));
+    // The room listens in TWO ways at once: direct (PeerJS) and through the backup servers (relayHost).
+    if (window.Peer) {
+      peer = new Peer(ROOM_PREFIX + code);
+      peer.on("open", () => roomReady(code));
+      peer.on("connection", c => { if (conn && conn.open) c.close(); else listen(c); });   // only one friend per room
+      peer.on("error", e => {
+        if (e.type === "unavailable-id") return onlineProblem("That room code is taken. Press Create room again.");
+        if (!window.mqtt) onlineProblem(`Online problem (${e.type}). Try again.`);   // otherwise the backup still works
+      });
+    }
+    relayHost(code);
+    render();
+  }
+  // The room is ready (direct or backup, whichever is first).
+  function roomReady(code) {
+    if (!S.online || S.online.code !== code || S.online.ready) return;
+    S.online.ready = true;
+    S.msg = `Room ${code} is open. Send the code to your friend.`;
     render();
   }
 
@@ -1340,10 +1356,106 @@ button.b.primary { box-shadow: var(--neon); }
     leaveOnline();
     S.online = { role: "guest", code, connected: false, meReady: false, themReady: false, pending: -1 };
     S.msg = `Looking for room ${code}…`;
-    peer = new Peer();
-    peer.on("open", () => listen(peer.connect(ROOM_PREFIX + code, { reliable: true })));
-    peer.on("error", e => onlineProblem(e.type === "peer-unavailable" ? `There is no room ${code}. Check the code with your friend.` : `Online problem (${e.type}). Try again.`));
+    // Plan B: if the direct way fails or is still not open after 6 seconds
+    // (this often happens on mobile data), talk through the backup servers instead.
+    const backup = () => {
+      if (!S.online || S.online.code !== code || S.online.connected || S.online.backup) return;
+      S.online.backup = true;
+      S.msg = "Direct connection is not working here. Trying the backup connection…";
+      render();
+      if (!relayJoin(code)) onlineProblem(`There is no room ${code}. Check the code with your friend.`);
+    };
+    if (window.Peer) {
+      peer = new Peer();
+      peer.on("open", () => listen(peer.connect(ROOM_PREFIX + code, { reliable: true })));
+      peer.on("error", backup);                 // any problem with the direct way: try the backup
+    }
+    later(backup, window.Peer ? 6000 : 0);
     render();
+  }
+
+  // ---------- backup connection: a public message server ----------
+  // Some networks (mobile data, school Wi-Fi) block direct connections between two browsers.
+  // Then both games send their messages to a free public MQTT server instead, and it passes them on.
+  // A "topic" is like the name of a chat room: neon-armada/v1/<room code>/<inbox>.
+  const RELAYS = ["wss://broker.hivemq.com:8884/mqtt", "wss://broker.emqx.io:8084/mqtt"];   // two servers, in case one is down
+  const topic = (code, box) => `neon-armada/v1/${code}/${box}`;
+  let relays = [], timers = [];
+  const later = (f, ms) => timers.push(setTimeout(f, ms));
+  const parse = buf => { try { const m = JSON.parse(buf.toString()); return m && typeof m === "object" ? m : null; } catch { return null; } };
+
+  // A backup connection works like a PeerJS connection: open, send(), close(), on("open" | "data" | "close").
+  class RelayConn {
+    constructor(client, code, to, sid) { Object.assign(this, { client, code, to, sid, open: false, h: {} }); }
+    on(e, f) { (this.h[e] = this.h[e] || []).push(f); return this; }
+    emit(e, x) { (this.h[e] || []).forEach(f => f(x)); }
+    send(m) { if (this.client.connected) this.client.publish(topic(this.code, this.to), JSON.stringify(Object.assign({}, m, { sid: this.sid }))); }
+    close() { if (!this.open) return; this.send({ type: "bye" }); this.open = false; }
+  }
+  // will = the message the server sends for us if our page closes suddenly ("I left").
+  function relayClient(url, will) {
+    const c = mqtt.connect(url, { connectTimeout: 8000, reconnectPeriod: 0, will });
+    c.on("error", () => {});
+    relays.push(c);
+    return c;
+  }
+
+  // Host: wait for a friend on every backup server.
+  function relayHost(code) {
+    if (!window.mqtt) return;
+    RELAYS.forEach(url => {
+      const client = relayClient(url, { topic: topic(code, "g"), payload: JSON.stringify({ type: "bye" }) });
+      client.on("connect", () => client.subscribe(topic(code, "h"), () => roomReady(code)));
+      client.on("message", (tp, buf) => {
+        const m = parse(buf);
+        if (!m || typeof m.sid !== "string" || !/^[a-z0-9]{4,12}$/.test(m.sid)) return;
+        if (m.type === "hello") {
+          if (conn && conn.open) { client.publish(topic(code, "g-" + m.sid), JSON.stringify({ type: "busy" })); return; }
+          const c = new RelayConn(client, code, "g-" + m.sid, m.sid);
+          const old = conn;
+          listen(c);
+          if (old) old.close();                 // a direct connection that never opened is dropped
+          c.send({ type: "welcome" });
+          c.open = true; c.emit("open");
+          return;
+        }
+        if (!(conn instanceof RelayConn) || conn.client !== client || m.sid !== conn.sid) return;   // only my friend
+        if (m.type === "bye") { conn.open = false; conn.emit("close"); return; }
+        conn.emit("data", m);
+      });
+    });
+  }
+
+  // Guest: say hello on every backup server and use the first one that answers.
+  function relayJoin(code) {
+    if (!window.mqtt) return false;
+    const sid = Math.random().toString(36).slice(2, 10);
+    let won = false;
+    RELAYS.forEach(url => {
+      const client = relayClient(url, { topic: topic(code, "h"), payload: JSON.stringify({ type: "bye", sid }) });
+      const c = new RelayConn(client, code, "h", sid);
+      client.on("connect", () => client.subscribe([topic(code, "g-" + sid), topic(code, "g")], () => c.send({ type: "hello" })));
+      client.on("message", (tp, buf) => {
+        const m = parse(buf);
+        if (!m) return;
+        if (m.type === "welcome" && !won && S.online && S.online.code === code && !S.online.connected) {
+          won = true;
+          const old = conn;
+          listen(c);
+          if (old) old.close();
+          c.open = true; c.emit("open");
+          return;
+        }
+        if (m.type === "busy" && !won) return onlineProblem(`Room ${code} already has two players.`);
+        if (conn !== c) return;
+        if (m.type === "bye") { c.open = false; c.emit("close"); return; }
+        if (m.type !== "welcome") c.emit("data", m);
+      });
+    });
+    later(() => {
+      if (S.online && S.online.code === code && !S.online.connected) onlineProblem(`Could not reach room ${code}. Check the code, and that your friend's room is still open.`);
+    }, 9000);
+    return true;
   }
 
   // Set up a connection: what to do when it opens, when a message arrives, and when it closes.
@@ -1352,6 +1464,7 @@ button.b.primary { box-shadow: var(--neon); }
     c.on("open", () => {
       if (!S.online || conn !== c) return;
       S.online.connected = true;
+      S.online.via = c instanceof RelayConn ? "backup" : "direct";
       S.msg = "Connected to your friend! Place your ships and press Start battle.";
       render();
     });
@@ -1365,6 +1478,10 @@ button.b.primary { box-shadow: var(--neon); }
     conn = null; peer = null;
     if (c) c.close();
     if (p) p.destroy();
+    const rs = relays;
+    relays = [];
+    timers.forEach(clearTimeout); timers = [];
+    setTimeout(() => rs.forEach(r => { try { r.end(true); } catch {} }), 300);   // a moment later, so our "bye" gets out first
     if (S) S.online = null;
   }
 
@@ -1807,7 +1924,7 @@ button.b.primary { box-shadow: var(--neon); }
     $("btn-leave").hidden = !on || S.phase === "battle";
     document.querySelector(".seg").hidden = $("diff-note").hidden = !!on;   // no difficulty against a person
     if (on) $("online-status").innerHTML = on.connected
-      ? `Connected to your friend · room <b class="room-code">${on.code}</b>`
+      ? `Connected to your friend${on.via === "backup" ? " (backup server)" : ""} · room <b class="room-code">${on.code}</b>`
       : on.role === "host" ? `Your room code: <b class="room-code">${on.code}</b> <button class="b" type="button" data-copy>Copy invite link</button><br>Send the code or the link to your friend and wait…` : `Joining room <b class="room-code">${on.code}</b>…`;
     $("banner-replay").hidden = !S.startE;
     $("btn-save").disabled = S.player.ships.length < FLEET.length;
