@@ -221,11 +221,13 @@ body {
 .pv-bad { background: var(--pv-bad); }
 .cell.radar { box-shadow: inset 0 0 0 2px var(--accent); }   /* gold frame on the radar's 3x3 area */
 #sea-player .cell:not(:disabled) { cursor: pointer; }
-#sea-enemy .cell:not(:disabled) { cursor: crosshair; }
-#sea-enemy .cell:not(:disabled):hover { background: var(--sea-hover); }
+#sea-enemy .cell:not([aria-disabled="true"]) { cursor: crosshair; }
+#sea-enemy .cell:not([aria-disabled="true"]):hover { background: var(--sea-hover); }
 /* Aiming circle on the enemy square under the mouse (or keyboard focus). */
-#sea-enemy .cell:not(:disabled):hover::after,
-#sea-enemy .cell:not(:disabled):focus-visible::after { display: block; inset: 18%; border-radius: 50%; border: 2px solid var(--accent); background: radial-gradient(circle, var(--accent) 0 1.5px, transparent 2px); }
+#sea-enemy .cell:not([aria-disabled="true"]):hover::after,
+/* Phones: the square you tapped once ("armed"). Tap it again to fire. */
+#sea-enemy .cell.armed::after { display: block; inset: 14%; border-radius: 50%; border: 2px solid var(--hit); box-shadow: 0 0 10px var(--hit); background: radial-gradient(circle, var(--hit) 0 2px, transparent 2.5px); }
+#sea-enemy .cell:not([aria-disabled="true"]):focus-visible::after { display: block; inset: 18%; border-radius: 50%; border: 2px solid var(--accent); background: radial-gradient(circle, var(--accent) 0 1.5px, transparent 2px); }
 .cell:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; z-index: 1; }
 .last-shot { animation: ping 1s ease-out; }
 @keyframes ping { from { box-shadow: inset 0 0 0 40px var(--flash); } to { box-shadow: inset 0 0 0 0 transparent; } }
@@ -341,6 +343,8 @@ button.b.primary { box-shadow: var(--neon); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .side { padding: 12px; }
   .console { padding: 14px; }
+  .status { position: sticky; top: 0; z-index: 5; }               /* "Your turn" stays on screen while you scroll */
+  .sea-box::before, .sea-box::after { animation: none; }          /* moving waves cost battery on phones */
 }
 /* People who turned off animations on their device get none. */
 @media (prefers-reduced-motion: reduce) {
@@ -823,6 +827,8 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   // ---------- state ----------
+  let armed = -1;                       // phones: the square tapped once (tap again to fire)
+  let heatKey = "", heatVal = null;     // heat map cache: only recount when a new shot lands
   let showHeat = false;               // "Show AI thinking" switch
   let S, hover = -1, abandonArmed = false, abandonTimer = 0, bannerClosed = false;
   function newGame(diff) {
@@ -852,6 +858,14 @@ button.b.primary { box-shadow: var(--neon); }
       b.addEventListener("click", () => onClick(i));
       sea.appendChild(b); store.push(b);
     }
+    // Arrow keys move between squares, so you can play the whole game with the keyboard.
+    sea.addEventListener("keydown", e => {
+      const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -N, ArrowDown: N }[e.key];
+      const i = +e.target.dataset.i;
+      if (!d || (d === -1 && i % N === 0) || (d === 1 && i % N === N - 1) || !store[i + d]) return;
+      e.preventDefault();
+      store[i + d].focus();
+    });
     return sea;
   }
 
@@ -1012,10 +1026,12 @@ button.b.primary { box-shadow: var(--neon); }
     S.player = JSON.parse(JSON.stringify(S.startP));
     S.enemy = JSON.parse(JSON.stringify(S.startE));
     bannerClosed = true;                       // hide the end banner so you can watch
+    const final = S.msg;                       // the result text, to show again at the end
+    S.lastE = S.lastP = S.radarAt = -1;        // clear old markers before the replay starts
     let k = 0;                                 // which shot we are on
     function next() {
       if (S.id !== id) return;                 // a new game started: stop the replay
-      if (k >= S.log.length) { S.msg = "Replay finished."; render(); return; }
+      if (k >= S.log.length) { S.msg = final; bannerClosed = false; render(); return; }   // banner back: watch again or play again
       const e = S.log[k];
       fire(e.who === "You" ? S.enemy : S.player, e.i);
       if (e.who === "You") S.lastE = e.i; else S.lastP = e.i;
@@ -1118,6 +1134,8 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   function onlineProblem(text) {
+    // If we are already connected and playing, the direct link still works: ignore the server hiccup.
+    if (S.online && S.online.connected && S.phase !== "place") return;
     leaveOnline();
     S.msg = text;
     render();
@@ -1125,8 +1143,8 @@ button.b.primary { box-shadow: var(--neon); }
 
   function friendLeft() {
     leaveOnline();
-    if (S.phase !== "place") { bannerClosed = false; S = newGame(S.diff); }   // a battle can't go on alone
-    S.msg = "Your friend left the online game. You are playing the computer again.";
+    if (S.phase === "battle") { bannerClosed = false; S = newGame(S.diff); }  // a battle can't go on alone
+    if (S.phase !== "over") S.msg = "Your friend left the online game. You are playing the computer again.";  // after a game, keep the result
     render();
   }
 
@@ -1137,7 +1155,7 @@ button.b.primary { box-shadow: var(--neon); }
     bannerClosed = false;
     S = newGame(S.diff);
     if (keep) {
-      S.online = Object.assign(keep, { meReady: false, pending: -1 });
+      S.online = Object.assign(keep, { meReady: false, pending: -1, theirRadar: false });
       S.msg = "Rematch! Place your ships and press Start battle.";
     }
   }
@@ -1279,7 +1297,8 @@ button.b.primary { box-shadow: var(--neon); }
       return;
     }
 
-    if (m.type === "radar" && validSquare(m.i) && S.busy && o.pending < 0) {
+    if (m.type === "radar" && validSquare(m.i) && S.busy && o.pending < 0 && !o.theirRadar) {
+      o.theirRadar = true;                    // one scan per game, checked on MY side so nobody can cheat
       // My friend used their radar on my board: count and answer.
       send({ type: "radar-result", i: m.i, count: radarCount(S.player, m.i) });
       const mine = nextTurn(false, {});
@@ -1334,7 +1353,9 @@ button.b.primary { box-shadow: var(--neon); }
       setCell(pBtns[i], cls, label, !spec);
     });
     // AI THINKING: tint each square red by how likely the Hard AI thinks a ship is there.
-    const heat = showHeat && S.phase !== "place" ? scoreBoard(S.player) : null;
+    const hk = S.id + ":" + S.player.cells.reduce((n, c) => n + c.shot, 0);   // changes only when a shot lands
+    if (showHeat && S.phase !== "place" && hk !== heatKey) { heatKey = hk; heatVal = scoreBoard(S.player); }
+    const heat = showHeat && S.phase !== "place" ? heatVal : null;
     const max = heat ? Math.max(1, ...heat) : 1;
     pBtns.forEach((el, i) => {
       // An inset shadow paints the red ON TOP of the cell, so the sea colour and bomb glow stay underneath.
@@ -1353,6 +1374,7 @@ button.b.primary { box-shadow: var(--neon); }
     renderPlayerBoard();
 
     // Enemy board
+    if (S.phase !== "battle" || S.busy) armed = -1;      // aiming only lasts during your own turn
     const reveal = S.phase === "over";
     S.enemy.cells.forEach((cell, i) => {
       const cls = ["cell"]; let label = coord(i);
@@ -1364,6 +1386,7 @@ button.b.primary { box-shadow: var(--neon); }
         label += s ? (isSunk(s) ? `, sunk ${s.name}` : ", hit") : cell.bomb ? ", bomb exploded" : ", miss";
       } else label += ", not fired on";
       if (i === S.lastE) cls.push("ping");
+      if (i === armed) cls.push("armed");
       // Radar frame: is this square at most 1 row and 1 column away from the scanned square?
       if (S.radarAt >= 0 && Math.abs(Math.floor(i / N) - Math.floor(S.radarAt / N)) <= 1 && Math.abs(i % N - S.radarAt % N) <= 1) cls.push("radar");
       setCell(eBtns[i], cls, label, S.phase !== "battle" || S.busy || cell.shot);
@@ -1420,7 +1443,7 @@ button.b.primary { box-shadow: var(--neon); }
     document.querySelector(".seg").hidden = $("diff-note").hidden = !!on;   // no difficulty against a person
     if (on) $("online-status").innerHTML = on.connected
       ? `Connected to your friend · room <b class="room-code">${on.code}</b>`
-      : on.role === "host" ? `Your room code: <b class="room-code">${on.code}</b><br>Send it to your friend and wait…` : `Joining room <b class="room-code">${on.code}</b>…`;
+      : on.role === "host" ? `Your room code: <b class="room-code">${on.code}</b> <button class="b" type="button" data-copy>Copy invite link</button><br>Send the code or the link to your friend and wait…` : `Joining room <b class="room-code">${on.code}</b>…`;
     $("banner-replay").hidden = !S.startE;
     $("btn-save").disabled = S.player.ships.length < FLEET.length;
     $("s-shots").textContent = S.shots;
@@ -1471,7 +1494,10 @@ button.b.primary { box-shadow: var(--neon); }
     el.className = name + (ping ? " last-shot" : "");
     el.dataset.ping = ping ? "1" : "0";
     el.setAttribute("aria-label", label);
-    el.disabled = disabled;
+    // Enemy squares stay focusable during the battle, so keyboard focus is not lost after each shot.
+    // playerFire() already ignores clicks that are not allowed.
+    el.disabled = disabled && !(el.parentElement.id === "sea-enemy" && S.phase === "battle");
+    el.setAttribute("aria-disabled", String(disabled));
   }
 
   function fleetHTML(b, mine) {
@@ -1486,12 +1512,25 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   // ---------- events ----------
+  // On phones the first tap only aims (red ring) and the second tap on the same square fires.
+  // Fingers are big and squares are small, and a shot can't be taken back.
+  const touch = window.matchMedia("(pointer: coarse)");
+  function tapFire(i) {
+    if (touch.matches && armed !== i && S.phase === "battle" && !S.busy && !S.enemy.cells[i].shot) {
+      armed = i;
+      S.msg = `Tap ${coord(i)} again to ${S.radarMode ? "scan it" : "fire"}.`;
+      render();
+      return;
+    }
+    armed = -1;
+    playerFire(i);
+  }
   let wired = false;
   function wire() {
     if (wired) return;                   // only hook up events once, or every key press would count twice
     wired = true;
     const pSea = buildBoard("player", pBtns, placeAt);
-    buildBoard("enemy", eBtns, playerFire);
+    buildBoard("enemy", eBtns, tapFire);
     pSea.addEventListener("pointerover", e => {
       const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
       const i = +c.dataset.i; if (i !== hover) { hover = i; renderPlayerBoard(); }
@@ -1542,12 +1581,21 @@ button.b.primary { box-shadow: var(--neon); }
     };
     // Splash screen: Play hides it (this click also lets the music start).
     $("splash-play").onclick = () => {
+      $("app").inert = false;                  // the game can be used now
       $("splash").classList.add("leaving");
       SFX.start();
       setTimeout(() => ($("splash").hidden = true), 500);
     };
     $("btn-heat").onclick = () => { showHeat = !showHeat; render(); };
     $("btn-host").onclick = hostRoom;
+    // Invite link: a link with the room code inside. Your friend opens it and the code is already filled in.
+    $("online-status").onclick = e => {
+      if (!e.target.closest("[data-copy]") || !S.online) return;
+      const link = `${location.origin}${location.pathname}?join=${S.online.code}`;
+      const done = ok => { S.msg = ok ? "Invite link copied. Paste it to your friend." : `Send this link to your friend: ${link}`; render(); };
+      if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => done(true), () => done(false));
+      else done(false);
+    };
     $("btn-join").onclick = joinRoom;
     $("join-code").addEventListener("keydown", e => { if (e.key === "Enter") joinRoom(); });
     $("btn-leave").onclick = () => {
@@ -1597,6 +1645,12 @@ button.b.primary { box-shadow: var(--neon); }
     S = Object.assign({ radarLeft: 1, radarMode: false, radarAt: -1 }, S);   // older saved games had no radar
     if (S.online) S = newGame(S.diff);        // an online connection can't be restored: start fresh
     wire();
+    $("app").inert = !(data && data.state);    // splash on top: the game behind it is not clickable yet
+    const invite = new URLSearchParams(location.search).get("join");
+    if (invite && /^[A-Za-z]{4}$/.test(invite) && !S.online) {
+      $("join-code").value = invite.toUpperCase();
+      S.msg = `You were invited to room ${invite.toUpperCase()}. Press Join (bottom right) to play your friend.`;
+    }
     render();
     if (data && data.state) $("splash").hidden = true;   // coming back to a saved game: skip the splash
     else $("splash-play").focus();                       // so Enter starts the game
