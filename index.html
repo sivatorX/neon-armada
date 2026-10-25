@@ -326,6 +326,13 @@ button.b.primary { box-shadow: var(--neon); }
 .splash p { margin: 0; color: var(--muted); }
 #splash-play { font-size: 20px; padding: 12px 34px; }
 
+/* ---------- online play ---------- */
+.online { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.code-input { width: 6.5em; padding: 7px 10px; border-radius: 8px; border: 1.5px solid rgba(58, 216, 255, 0.55); background: var(--panel); color: var(--ink); font-family: var(--mono); font-size: 16px; letter-spacing: 0.25em; text-transform: uppercase; }
+.code-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.online-status { margin: 0; font-size: 14px; line-height: 1.7; }
+.room-code { font-family: var(--mono); font-size: 22px; letter-spacing: 0.2em; color: var(--accent); text-shadow: var(--neon); }
+
 @media (max-width: 760px) {
   .theatre, .console { grid-template-columns: minmax(0, 1fr); }
   .wrap[data-phase="battle"] #side-enemy { order: -1; }
@@ -444,6 +451,17 @@ button.b.primary { box-shadow: var(--neon); }
         <input type="radio" name="diff" id="diff-hard" value="hard"><label for="diff-hard">Hard</label>
       </div>
       <p class="hint" id="diff-note"></p>
+      <div class="online" id="online">
+        <h3>Play a friend online</h3>
+        <div class="btns" id="online-start">
+          <button class="b" id="btn-host" type="button">Create room</button>
+          <input class="code-input" id="join-code" maxlength="4" placeholder="CODE" aria-label="Room code from your friend" autocomplete="off" spellcheck="false">
+          <button class="b" id="btn-join" type="button">Join</button>
+        </div>
+        <p class="online-status" id="online-status" hidden></p>
+        <div class="btns"><button class="b" id="btn-leave" type="button" hidden>Leave online game</button></div>
+        <p class="hint" id="online-note">Create a room and send the 4-letter code to a friend, or type their code and press Join.</p>
+      </div>
       <h3>Shot log</h3>
       <ol class="log" id="log"></ol>
     </div>
@@ -465,6 +483,8 @@ button.b.primary { box-shadow: var(--neon); }
   </div>
 </div>
 
+<!-- PeerJS: connects two browsers directly (WebRTC). Needs internet only for online play. -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 (() => {
   const N = 10, ROWS = "ABCDEFGHIJ";
@@ -886,17 +906,22 @@ button.b.primary { box-shadow: var(--neon); }
     return who === "You" ? `You fired ${coord(i)}: hit.` : `Enemy fired ${coord(i)}: hit on your ${r.ship}.`;
   }
 
-  // RADAR: count hidden ship squares in the 3x3 area around square i. Costs your turn.
-  function useRadar(i) {
+  // RADAR: count hidden ship squares in the 3x3 area around square i of board b.
+  function radarCount(b, i) {
     const r = Math.floor(i / N), c = i % N;          // row and column of the square
     let count = 0;
     for (let rr = r - 1; rr <= r + 1; rr++) {        // the row above, this row, the row below
       for (let cc = c - 1; cc <= c + 1; cc++) {      // the column left, this column, the column right
         if (rr < 0 || rr >= N || cc < 0 || cc >= N) continue;   // outside the board: skip
-        const cell = S.enemy.cells[rr * N + cc];
+        const cell = b.cells[rr * N + cc];
         if (cell.ship >= 0 && !cell.shot) count++;   // a ship square not hit yet
       }
     }
+    return count;
+  }
+  // Radar against the computer. Costs your turn.
+  function useRadar(i) {
+    const count = radarCount(S.enemy, i);
     S.radarMode = false; S.radarLeft = 0; S.radarAt = i;
     S.myLine = `Radar at ${coord(i)}: ${count} hidden ship square${count === 1 ? "" : "s"} nearby.`;
     // Same turn rules as a normal shot: if the enemy is skipping, you go again.
@@ -913,8 +938,9 @@ button.b.primary { box-shadow: var(--neon); }
   }
   function playerFire(i) {
     if (S.phase !== "battle" || S.busy || S.enemy.cells[i].shot) return;
-    if (S.radarMode) return useRadar(i);   // radar is aiming: scan instead of firing
+    if (S.radarMode) return S.online ? onlineRadar(i) : useRadar(i);   // radar is aiming: scan instead of firing
     S.radarAt = -1;                         // a normal shot clears the old radar highlight
+    if (S.online) return onlineFire(i);     // online: ask your friend what is there
     const r = fire(S.enemy, i);
     S.shots++; if (r.hit) S.hits++;
     S.lastE = i;
@@ -979,7 +1005,7 @@ button.b.primary { box-shadow: var(--neon); }
   // REPLAY: put both boards back to how they were at the start,
   // then repeat every shot from the log, one every half second.
   function replay() {
-    if (!S.startP) return;                     // no saved start boards: nothing to replay
+    if (!S.startP || !S.startE) return;        // no saved start boards: nothing to replay
     const id = S.id;                           // remember which game this replay belongs to
     S.player = JSON.parse(JSON.stringify(S.startP));
     S.enemy = JSON.parse(JSON.stringify(S.startE));
@@ -1017,8 +1043,258 @@ button.b.primary { box-shadow: var(--neon); }
       S.msg = "Defeat. Your fleet is gone. Enemy ships still afloat are shown in outline.";
     }
     saveRecord(record);
+    if (S.online) send({ type: "reveal", board: S.startP });   // game over: now it is fair to show your board
     render();
     if (!bannerClosed) $("banner-again").focus();
+  }
+
+  // ---------- online play (two players, two computers) ----------
+  // How it works:
+  // - PeerJS (a free service) introduces the two browsers to each other using a room code.
+  // - After that the browsers talk DIRECTLY to each other (WebRTC) with small messages.
+  // - Each player keeps their own board secret. You only send "I fire at square 23",
+  //   and your friend's computer answers "hit / miss / sunk / bomb".
+  //   Whole boards are swapped only when the game is over.
+  const ROOM_PREFIX = "neon-battleship-";     // added to the code, so we don't clash with other PeerJS apps
+  let peer = null, conn = null;               // connection objects: kept outside S, because they can't be copied
+
+  const send = msg => { if (conn && conn.open) conn.send(msg); };
+  const validSquare = i => Number.isInteger(i) && i >= 0 && i < N * N;
+
+  // A random 4-letter code. No I or O, so nobody mixes them up with 1 and 0.
+  function roomCode() {
+    const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    return Array.from({ length: 4 }, () => letters[rnd(letters.length)]).join("");
+  }
+
+  function hostRoom() {
+    if (!window.Peer) return onlineProblem("Online play needs an internet connection. Check it and reload the page.");
+    leaveOnline();
+    const code = roomCode();
+    S.online = { role: "host", code, connected: false, meReady: false, themReady: false, pending: -1 };
+    S.msg = "Opening a room…";
+    peer = new Peer(ROOM_PREFIX + code);
+    peer.on("open", () => { if (!S.online) return; S.msg = `Room ${code} is open. Send the code to your friend.`; render(); });
+    peer.on("connection", c => { if (conn) c.close(); else listen(c); });   // only one friend per room
+    peer.on("error", e => onlineProblem(e.type === "unavailable-id" ? "That room code is taken. Press Create room again." : `Online problem (${e.type}). Try again.`));
+    render();
+  }
+
+  function joinRoom() {
+    if (!window.Peer) return onlineProblem("Online play needs an internet connection. Check it and reload the page.");
+    const code = $("join-code").value.trim().toUpperCase();
+    if (!/^[A-Z]{4}$/.test(code)) { S.msg = "Type the 4-letter room code from your friend."; render(); return; }
+    leaveOnline();
+    S.online = { role: "guest", code, connected: false, meReady: false, themReady: false, pending: -1 };
+    S.msg = `Looking for room ${code}…`;
+    peer = new Peer();
+    peer.on("open", () => listen(peer.connect(ROOM_PREFIX + code, { reliable: true })));
+    peer.on("error", e => onlineProblem(e.type === "peer-unavailable" ? `There is no room ${code}. Check the code with your friend.` : `Online problem (${e.type}). Try again.`));
+    render();
+  }
+
+  // Set up a connection: what to do when it opens, when a message arrives, and when it closes.
+  function listen(c) {
+    conn = c;
+    c.on("open", () => {
+      if (!S.online || conn !== c) return;
+      S.online.connected = true;
+      S.msg = "Connected to your friend! Place your ships and press Start battle.";
+      render();
+    });
+    c.on("data", msg => { if (conn === c) onMessage(msg); });
+    c.on("close", () => { if (conn === c) friendLeft(); });
+  }
+
+  // Close everything. (conn and peer are cleared FIRST, so the "close" event knows we did it on purpose.)
+  function leaveOnline() {
+    const c = conn, p = peer;
+    conn = null; peer = null;
+    if (c) c.close();
+    if (p) p.destroy();
+    if (S) S.online = null;
+  }
+
+  function onlineProblem(text) {
+    leaveOnline();
+    S.msg = text;
+    render();
+  }
+
+  function friendLeft() {
+    leaveOnline();
+    if (S.phase !== "place") { bannerClosed = false; S = newGame(S.diff); }   // a battle can't go on alone
+    S.msg = "Your friend left the online game. You are playing the computer again.";
+    render();
+  }
+
+  // New game. Right after an online game, while still connected, it is a rematch with the same friend.
+  function freshGame() {
+    const keep = S.online && S.online.connected && S.phase === "over" ? S.online : null;
+    if (!keep) leaveOnline();
+    bannerClosed = false;
+    S = newGame(S.diff);
+    if (keep) {
+      S.online = Object.assign(keep, { meReady: false, pending: -1 });
+      S.msg = "Rematch! Place your ships and press Start battle.";
+    }
+  }
+
+  // Both players pressed Start battle: the fight begins.
+  function beginOnlineBattle() {
+    S.phase = "battle"; hover = -1;
+    addBombs(S.player, BOMBS);                // bombs go only in YOUR sea; your friend hides their own
+    // The enemy board starts as "fog": we know nothing, and only learn what our shots reveal.
+    S.enemy = newBoard();
+    FLEET.forEach(spec => S.enemy.ships.push({ name: spec.name, len: spec.len, cells: [], dir: "h", hits: 0 }));
+    S.startP = JSON.parse(JSON.stringify(S.player));
+    S.startE = null;                          // we get the friend's board when the game is over
+    S.online.meReady = S.online.themReady = false;
+    S.busy = S.online.role !== "host";        // the player who made the room fires first
+    SFX.start();
+    S.msg = S.busy ? "Battle stations! Your friend made the room, so they fire first." : "Battle stations! You made the room, so you fire first.";
+    render();
+  }
+
+  // The SAME turn rule runs on both computers, so they always agree whose turn it is.
+  // meShot = did I fire this shot?  Returns true if it is my turn next.
+  function nextTurn(meShot, r) {
+    if (r.sunk) return meShot;                                          // bonus shot: the shooter goes again
+    if (r.bomb) { if (meShot) S.playerSkips = 1; else S.enemySkips = 1; }   // the shooter will miss a turn
+    if (meShot) {
+      if (S.enemySkips > 0) { S.enemySkips--; return true; }           // my friend is skipping: I go again
+      return false;
+    }
+    if (S.playerSkips > 0) { S.playerSkips--; return false; }          // I am skipping: my friend goes again
+    return true;
+  }
+
+  // My shot: ask my friend's computer what is on that square, then wait for the answer.
+  function onlineFire(i) {
+    S.online.pending = i;
+    S.busy = true;
+    S.msg = `Firing at ${coord(i)}…`;
+    send({ type: "fire", i });
+    render();
+  }
+  function onlineRadar(i) {
+    S.radarMode = false; S.radarLeft = 0; S.radarAt = i;
+    S.online.pending = i;
+    S.busy = true;
+    S.msg = `Radar scanning around ${coord(i)}…`;
+    send({ type: "radar", i });
+    render();
+  }
+
+  // Rebuild a board from data we received, checking every ship. Returns null if anything is wrong.
+  function boardFrom(d) {
+    if (!d || !Array.isArray(d.ships) || !Array.isArray(d.cells) || d.cells.length !== N * N || d.ships.length !== FLEET.length) return null;
+    const b = newBoard();
+    for (let k = 0; k < FLEET.length; k++) {
+      const s = d.ships[k] || {};
+      const ok = Array.isArray(s.cells) && s.cells.length === FLEET[k].len && s.cells.every(validSquare);
+      if (!ok || !fits(b, s.cells)) return null;
+      addShip(b, FLEET[k], s.cells.slice(), s.dir === "v" ? "v" : "h");
+    }
+    d.cells.forEach((c, i) => { if (c && c.bomb === true && b.cells[i].ship < 0) b.cells[i].bomb = true; });
+    return b;
+  }
+
+  // Every message from the friend arrives here. Check everything: never trust data from outside.
+  function onMessage(m) {
+    if (!S.online || !m || typeof m !== "object") return;
+    const o = S.online;
+
+    if (m.type === "ready") {
+      o.themReady = true;
+      if (S.phase === "place" && o.meReady) beginOnlineBattle();
+      else if (S.phase === "place") { S.msg = "Your friend is ready. Press Start battle when your fleet is in place."; render(); }
+      return;
+    }
+
+    if (m.type === "reveal") {
+      // Game over: my friend shows their board. Put my shots back on it, so I see everything.
+      const b = S.phase === "over" ? boardFrom(m.board) : null;
+      if (!b) return;
+      S.startE = b;
+      S.enemy = JSON.parse(JSON.stringify(b));
+      S.log.forEach(e => { if (e.who === "You") fire(S.enemy, e.i); });
+      render();
+      return;
+    }
+
+    if (S.phase !== "battle") return;
+
+    if (m.type === "fire" && validSquare(m.i) && S.busy && o.pending < 0 && !S.player.cells[m.i].shot) {
+      // My friend fires at MY board: work out the result here and send it back.
+      const i = m.i, r = fire(S.player, i);
+      if (r.hit) S.taken++;
+      S.lastP = i;
+      S.log.push({ who: "Enemy", c: coord(i), r, i });
+      shotSound(r); burst(pBtns[i], r);
+      if (r.sunk) shake("player");
+      const ship = r.sunk ? S.player.ships.find(s => s.name === r.ship) : null;
+      const lost = allSunk(S.player);
+      send({ type: "result", i, r, sunkCells: ship ? ship.cells : null, sunkDir: ship ? ship.dir : null, lost });
+      if (lost) return end("enemy");
+      const mine = nextTurn(false, r);
+      S.busy = !mine;
+      S.msg = describe("Enemy", i, r) + (mine ? " Your shot." : r.sunk ? " Your friend gets a bonus shot." : " You are still recovering from the bomb. Your friend fires again.");
+      render();
+      return;
+    }
+
+    if (m.type === "result" && m.i === o.pending && m.r && typeof m.r === "object") {
+      // The answer to MY shot: draw it on the enemy board.
+      const i = m.i;
+      const k = m.r.hit ? FLEET.findIndex(f => f.name === m.r.ship) : -1;
+      const r = { hit: k >= 0, sunk: k >= 0 && !!m.r.sunk, bomb: k < 0 && !!m.r.bomb, ship: k >= 0 ? FLEET[k].name : null };
+      o.pending = -1;
+      const cell = S.enemy.cells[i];
+      cell.shot = true;
+      if (r.bomb) cell.bomb = true;
+      if (r.hit) {
+        const s = S.enemy.ships[k];
+        cell.ship = k;
+        s.hits = Math.min(s.len, s.hits + 1);
+        if (!s.cells.includes(i)) s.cells.push(i);
+        if (r.sunk && Array.isArray(m.sunkCells) && m.sunkCells.length === s.len && m.sunkCells.every(validSquare)) {
+          s.cells = m.sunkCells.slice(); s.dir = m.sunkDir === "v" ? "v" : "h"; s.hits = s.len;
+          s.cells.forEach(j => (S.enemy.cells[j].ship = k));
+        }
+      }
+      S.shots++; if (r.hit) S.hits++;
+      S.lastE = i;
+      S.log.push({ who: "You", c: coord(i), r, i });
+      shotSound(r); burst(eBtns[i], r);
+      if (r.sunk) shake("enemy");
+      if (m.lost === true) return end("player");
+      const mine = nextTurn(true, r);
+      S.busy = !mine;
+      S.myLine = describe("You", i, r);
+      S.msg = S.myLine + (mine ? (r.sunk ? " Bonus shot! Fire again." : " Your friend is still recovering from the bomb. Fire again.") : " Your friend's turn…");
+      render();
+      return;
+    }
+
+    if (m.type === "radar" && validSquare(m.i) && S.busy && o.pending < 0) {
+      // My friend used their radar on my board: count and answer.
+      send({ type: "radar-result", i: m.i, count: radarCount(S.player, m.i) });
+      const mine = nextTurn(false, {});
+      S.busy = !mine;
+      S.msg = `Your friend used the radar around ${coord(m.i)}.` + (mine ? " Your shot." : " You are still recovering from the bomb. Your friend fires again.");
+      render();
+      return;
+    }
+
+    if (m.type === "radar-result" && m.i === o.pending && Number.isInteger(m.count) && m.count >= 0 && m.count <= 9) {
+      o.pending = -1;
+      const mine = nextTurn(true, {});
+      S.busy = !mine;
+      S.myLine = `Radar at ${coord(m.i)}: ${m.count} hidden ship square${m.count === 1 ? "" : "s"} nearby.`;
+      S.msg = S.myLine + (mine ? " Your friend is still recovering from the bomb. Fire again." : " Your friend's turn…");
+      render();
+    }
   }
 
   // ---------- render ----------
@@ -1096,13 +1372,13 @@ button.b.primary { box-shadow: var(--neon); }
     $("fleet-enemy").innerHTML = fleetHTML(S.enemy, false);
     const afloat = b => b.ships.filter(s => !isSunk(s)).length;
     $("note-player").textContent = S.phase === "place" ? `${S.player.ships.length}/${FLEET.length} placed` : `${afloat(S.player)} afloat`;
-    $("note-enemy").textContent = S.phase === "place" ? "" : `${afloat(S.enemy)} afloat`;
+    $("note-enemy").textContent = S.phase === "place" ? "" : `${FLEET.length - S.enemy.ships.filter(isSunk).length} afloat`;   // works online too, where we only know sunk ships
 
     // Status
     const chip = $("chip");
     chip.className = "chip";
     if (S.phase === "place") chip.textContent = "Setup";
-    else if (S.phase === "battle") { chip.textContent = S.busy ? "Enemy turn" : "Your turn"; if (!S.busy) chip.classList.add("turn"); }
+    else if (S.phase === "battle") { chip.textContent = S.busy ? (S.online ? "Friend's turn" : "Enemy turn") : "Your turn"; if (!S.busy) chip.classList.add("turn"); }
     else { chip.textContent = S.winner === "player" ? "Won" : "Lost"; chip.classList.add(S.winner === "player" ? "won" : "lost"); }
     $("msg").textContent = S.msg;
     $("record").textContent = `${record.w}–${record.l} · best ${record.best}`;
@@ -1128,8 +1404,22 @@ button.b.primary { box-shadow: var(--neon); }
       ? `Next: ${spec.name}<small>${spec.len} squares · ${S.orient === "h" ? "horizontal" : "vertical"}</small>`
       : `All ${FLEET.length} ships placed<small>${TOTAL_SQUARES} squares</small>`;
     $("btn-rotate").disabled = !spec;
-    $("btn-clear").disabled = S.player.ships.length === 0;
-    $("btn-start").disabled = S.player.ships.length < FLEET.length;
+    // Online: after you press Start battle, your fleet is locked while you wait for your friend.
+    const on = S.online;
+    const locked = !!(on && on.meReady && S.phase === "place");
+    $("btn-random").disabled = $("btn-load").disabled = locked;
+    $("btn-clear").disabled = locked || S.player.ships.length === 0;
+    $("btn-start").disabled = locked || S.player.ships.length < FLEET.length || !!(on && !on.connected);
+    $("btn-start").textContent = locked ? "Waiting for friend…" : "Start battle";
+    $("online").hidden = S.phase !== "place" && !on;
+    $("online-start").hidden = $("online-note").hidden = !!on;
+    $("online-status").hidden = !on;
+    $("btn-leave").hidden = !on || S.phase === "battle";
+    document.querySelector(".seg").hidden = $("diff-note").hidden = !!on;   // no difficulty against a person
+    if (on) $("online-status").innerHTML = on.connected
+      ? `Connected to your friend · room <b class="room-code">${on.code}</b>`
+      : on.role === "host" ? `Your room code: <b class="room-code">${on.code}</b><br>Send it to your friend and wait…` : `Joining room <b class="room-code">${on.code}</b>…`;
+    $("banner-replay").hidden = !S.startE;
     $("btn-save").disabled = S.player.ships.length < FLEET.length;
     $("s-shots").textContent = S.shots;
     $("s-hits").textContent = S.hits;
@@ -1230,6 +1520,14 @@ button.b.primary { box-shadow: var(--neon); }
     $("btn-load").onclick = loadLayout;
     $("btn-start").onclick = () => {
       if (S.player.ships.length < FLEET.length) return;
+      if (S.online) {                          // online: the battle starts when BOTH players are ready
+        if (!S.online.connected || S.online.meReady) return;
+        S.online.meReady = true;
+        send({ type: "ready" });
+        if (S.online.themReady) beginOnlineBattle();
+        else { S.msg = "Ready! Waiting for your friend to place their ships…"; render(); }
+        return;
+      }
       S.phase = "battle"; hover = -1;
       addBombs(S.player, BOMBS);
       addBombs(S.enemy, BOMBS);
@@ -1246,7 +1544,16 @@ button.b.primary { box-shadow: var(--neon); }
       SFX.start();
       setTimeout(() => ($("splash").hidden = true), 500);
     };
-    $("btn-heat").onclick =() => { showHeat = !showHeat; render(); };
+    $("btn-heat").onclick = () => { showHeat = !showHeat; render(); };
+    $("btn-host").onclick = hostRoom;
+    $("btn-join").onclick = joinRoom;
+    $("join-code").addEventListener("keydown", e => { if (e.key === "Enter") joinRoom(); });
+    $("btn-leave").onclick = () => {
+      leaveOnline();
+      if (S.phase !== "place") { bannerClosed = false; S = newGame(S.diff); }
+      S.msg = "You left the online game. You are playing the computer again.";
+      render();
+    };
     $("btn-radar").onclick = () => {
       if (S.phase !== "battle" || S.busy || S.radarLeft < 1) return;   // only on your turn, if you still have it
       S.radarMode = !S.radarMode;                                       // switch: on → off, off → on
@@ -1261,10 +1568,9 @@ button.b.primary { box-shadow: var(--neon); }
         return;
       }
       abandonArmed = false; clearTimeout(abandonTimer);
-      bannerClosed = false;
-      S = newGame(S.diff); render();
+      freshGame(); render();
     };
-    $("banner-again").onclick = () => { bannerClosed = false; S = newGame(S.diff); render(); };
+    $("banner-again").onclick = () => { freshGame(); render(); };
     // When the banner closes, move keyboard focus to a visible button so keyboard players don't get lost.
     $("banner-close").onclick = () => { bannerClosed = true; render(); $("btn-new").focus(); };
     $("banner-replay").onclick = replay;
@@ -1287,6 +1593,7 @@ button.b.primary { box-shadow: var(--neon); }
   function start(data) {
     S = data && data.state ? data.state : newGame("hard");
     S = Object.assign({ radarLeft: 1, radarMode: false, radarAt: -1 }, S);   // older saved games had no radar
+    if (S.online) S = newGame(S.diff);        // an online connection can't be restored: start fresh
     wire();
     render();
     if (data && data.state) $("splash").hidden = true;   // coming back to a saved game: skip the splash
