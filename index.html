@@ -273,7 +273,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); 
 .log .r-miss { color: var(--muted); }
 .log .r-sunk { color: var(--hit); font-weight: 500; text-transform: uppercase; }
 .log .r-bomb { color: var(--accent); font-weight: 500; text-transform: uppercase; }
-.log .empty { display: block; color: var(--muted); font-family: var(--body); }
+.log .empty { display: block; grid-column: 1 / -1; color: var(--muted); font-family: var(--body); }   /* use the full row width */
 
 /* End-of-game banner: covers the page with a blurred background. */
 .banner { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--bg) 60%, transparent); backdrop-filter: blur(3px); animation: fade 0.3s ease-out; }
@@ -435,6 +435,7 @@ button.b.primary { box-shadow: var(--neon); }
         <button class="b" id="btn-new" type="button">New game</button>
       </div>
       <p class="hint" id="heat-note" hidden>Red on your board = where a smart AI would aim. Darker = more likely a ship is there.</p>
+    </div>
     <div class="group">
       <h3>Opponent</h3>
       <div class="seg" role="radiogroup" aria-label="Opponent difficulty">
