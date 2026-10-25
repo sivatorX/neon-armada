@@ -1,8 +1,8 @@
-# Neon Battleship
+# Neon Armada ⚓
 
 A neon-styled Battleship game that runs in the browser: one HTML file, no install.
 
-## ▶ Play now: https://sivatorx.github.io/battleship/
+## ▶ Play now: https://sivatorx.github.io/neon-armada/
 
 ## Features
 - **Three opponents:** Easy, Medium and Hard. The Hard AI counts every way your ships could still lie.
