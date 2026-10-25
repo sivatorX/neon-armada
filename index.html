@@ -299,9 +299,10 @@ button.b.primary { box-shadow: var(--neon); }
 .chip.won { background: var(--win); color: var(--accent-ink); }
 
 /* ---------- explosion particles (made in JavaScript by burst()) ---------- */
-.fx { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+.fx { position: fixed; inset: 0; pointer-events: none; z-index: 15; overflow: hidden; }
 .fx i { position: absolute; border-radius: 50%; }
 .fx .spark { width: 5px; height: 5px; background: #fff; box-shadow: 0 0 6px 2px var(--c), 0 0 14px 4px var(--c); }
+.fx .confetti { top: 0; width: 8px; height: 14px; border-radius: 2px; box-shadow: 0 0 6px rgba(255, 255, 255, 0.35); }
 .fx .smoke { width: 18px; height: 18px; background: radial-gradient(circle, rgba(170, 180, 210, 0.45), transparent 70%); }
 
 /* ---------- splash screen ---------- */
@@ -704,6 +705,29 @@ button.b.primary { box-shadow: var(--neon); }
     }
   }
 
+  // CONFETTI on victory: 120 coloured paper pieces fall from the top of the screen, spinning.
+  function confetti() {
+    if (calm.matches || !document.body.animate) return;
+    const colors = ["#3ad8ff", "#ff2e88", "#19e0a8", "#ffe45e", "#b46cff"];   // the neon colours of the game
+    for (let k = 0; k < 120; k++) {
+      const p = document.createElement("i");
+      p.className = "confetti";
+      p.style.left = Math.random() * 100 + "vw";                  // random spot across the screen width
+      p.style.background = colors[k % colors.length];            // take the colours in turn
+      $("fx").appendChild(p);
+      const ms = 2200 + Math.random() * 1800;                     // falling time: 2.2 to 4 seconds
+      const delay = Math.random() * 600;                          // not all at once
+      const drift = (Math.random() - 0.5) * 200;                  // blows a little left or right
+      const spin = (Math.random() - 0.5) * 1440;                  // up to 2 turns each way
+      p.animate(
+        [{ transform: "translate(0, -20px) rotate(0deg)", opacity: 1 },
+         { transform: `translate(${drift}px, 105vh) rotate(${spin}deg)`, opacity: 0.9 }],
+        { duration: ms, delay, easing: "cubic-bezier(0.25, 0.4, 0.45, 1)", fill: "both" }
+      );
+      setTimeout(() => p.remove(), ms + delay + 50);              // clean up after it has fallen
+    }
+  }
+
   // ---------- background music (also made with code) ----------
   // How it works: every 50 ms, scheduler() plans the notes for the next 0.2 seconds.
   // Planning a little ahead keeps the rhythm steady even if the page is busy.
@@ -982,6 +1006,7 @@ button.b.primary { box-shadow: var(--neon); }
       record.streak++;
       record.best = Math.max(record.best, record.streak);
       SFX.win();
+      confetti();
       const acc = Math.round((S.hits / S.shots) * 100);
       S.msg = `Victory. You sank all ${FLEET.length} enemy ships in ${S.shots} shots, ${acc}% accuracy.`;
     } else {
