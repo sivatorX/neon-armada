@@ -139,6 +139,15 @@ body {
 .hull.ghost::before { background: var(--ghost); box-shadow: none; }
 /* Sunk ships get diagonal stripes. */
 .hull.sunk::before { background: repeating-linear-gradient(135deg, var(--sunk) 0 4px, color-mix(in srgb, var(--sunk) 70%, #000) 4px 8px); }
+/* Realistic ships: every square shows its own slice of ONE ship picture (made by shipImage() in the script).
+   --img = the picture, --bs = how big it is (the whole ship), --bp = which slice this square shows. */
+.cell.hull[data-ship]::before {
+  inset: 0; border-radius: 0; box-shadow: none;
+  background: var(--img) var(--bp) / var(--bs) no-repeat;
+  filter: drop-shadow(0 0 3px rgba(25, 224, 168, 0.45)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+}
+.cell.hull.ghost[data-ship]::before { opacity: 0.45; filter: grayscale(0.7); }                         /* enemy ships shown after the game */
+.cell.hull.sunk[data-ship]::before { filter: sepia(0.8) hue-rotate(-45deg) saturate(2.5) brightness(0.55) drop-shadow(0 0 4px rgba(255, 46, 136, 0.6)); }   /* burnt and sinking */
 .miss::after { display: block; inset: 38%; border-radius: 50%; background: var(--miss); box-shadow: 0 0 0 1.5px var(--miss-ring); }
 .hit::after { display: block; inset: 28%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffc2b0, var(--hit) 55%); box-shadow: 0 0 0 2px var(--hit-ring), 0 0 10px 1px var(--glow); }
 /* The newest shot: hits explode, misses splash. */
@@ -1530,6 +1539,87 @@ button.b.primary { box-shadow: var(--neon); }
     }
   }
 
+  // ---------- ship pictures ----------
+  // Each ship is ONE drawing (an SVG picture), seen from above, as long as the ship.
+  // It is drawn lying down with the bow (front) on the right. Vertical ships are the same picture turned.
+  const NEON = 'stroke="#19e0a8" stroke-opacity="0.6" stroke-width="2"';
+  const DEFS = '<defs>' +
+    '<linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b8091"/><stop offset=".5" stop-color="#3c4d5d"/><stop offset="1" stop-color="#1b2530"/></linearGradient>' +
+    '<linearGradient id="dk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9aabb9"/><stop offset="1" stop-color="#5e6f7d"/></linearGradient>' +
+    '<linearGradient id="sb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a5866"/><stop offset=".5" stop-color="#26313b"/><stop offset="1" stop-color="#0f151b"/></linearGradient>' +
+    '<linearGradient id="fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a444d"/><stop offset="1" stop-color="#22292f"/></linearGradient>' +
+    '</defs>';
+  // A pointed hull: flat at the back (left), sharp bow at the front (right).
+  const hull = (W, top, bot, fill = "url(#hl)") =>
+    `<path d="M8 ${top} L${W - 70} ${top} Q${W - 14} ${top} ${W - 4} 50 Q${W - 14} ${bot} ${W - 70} ${bot} L8 ${bot} Q3 50 8 ${top}Z" fill="${fill}" ${NEON}/>`;
+  const deck = (W, top, bot) =>
+    `<path d="M16 ${top + 6} L${W - 80} ${top + 6} Q${W - 30} ${top + 8} ${W - 20} 50 Q${W - 30} ${bot - 8} ${W - 80} ${bot - 6} L16 ${bot - 6}Z" fill="url(#dk)" opacity=".55"/>`;
+  // A gun turret: round base and two barrels. back = barrels point to the stern.
+  const turret = (x, r, back = false) => {
+    const bx = back ? x - r - 22 : x, br = `width="${r + 22}" height="3.5" rx="1.5" fill="#26313a"`;
+    return `<rect x="${bx}" y="45" ${br}/><rect x="${bx}" y="51.5" ${br}/><circle cx="${x}" cy="50" r="${r}" fill="url(#dk)" stroke="#1d262d" stroke-width="2"/><circle cx="${x}" cy="50" r="${r * 0.35}" fill="#4e5d69"/>`;
+  };
+  // A bridge (command tower) with glowing windows.
+  const bridge = (x, w, h = 28) =>
+    `<rect x="${x}" y="${50 - h / 2}" width="${w}" height="${h}" rx="4" fill="url(#dk)" stroke="#1d262d" stroke-width="2"/>` +
+    `<rect x="${x + 6}" y="${50 - h / 2 + 5}" width="${w - 12}" height="${h - 10}" rx="3" fill="#56687a"/>` +
+    `<rect x="${x + w - 9}" y="${50 - h / 2 + 6}" width="4" height="${h - 12}" rx="2" fill="#3ad8ff" opacity=".9"/>`;
+  const funnel = x => `<ellipse cx="${x}" cy="50" rx="11" ry="8" fill="#1a2027" stroke="#56687a" stroke-width="2"/><ellipse cx="${x}" cy="50" rx="5" ry="3.5" fill="#05080b"/>`;
+  const jet = (x, y) => `<g transform="translate(${x} ${y})" fill="#b8c7d3"><path d="M0 -2 L18 -2 L23 0 L18 2 L0 2Z"/><path d="M7 -10 L12 0 L7 10Z"/><path d="M0 -5 L3 0 L0 5Z"/></g>`;
+  const foam = W => `<path d="M${W - 6} 50 Q${W - 30} 30 ${W - 70} 22 M${W - 6} 50 Q${W - 30} 70 ${W - 70} 78" fill="none" stroke="#e8f6ff" stroke-opacity=".35" stroke-width="2"/>`;
+
+  const SHIP_ART = {
+    Carrier: W =>   // flight deck with runway, landing lines, planes and the island
+      `<path d="M6 10 L${W - 70} 10 Q${W - 8} 16 ${W - 4} 50 Q${W - 8} 84 ${W - 70} 90 L6 90 Q2 50 6 10Z" fill="url(#fd)" ${NEON}/>` +
+      `<line x1="30" y1="50" x2="${W - 30}" y2="50" stroke="#e8f6ff" stroke-opacity=".75" stroke-width="2" stroke-dasharray="16 10"/>` +
+      `<line x1="40" y1="76" x2="270" y2="30" stroke="#ffe45e" stroke-opacity=".7" stroke-width="2"/>` +
+      `<line x1="40" y1="64" x2="250" y2="22" stroke="#ffe45e" stroke-opacity=".35" stroke-width="1.5"/>` +
+      jet(90, 30) + jet(130, 30) + jet(170, 30) + jet(330, 68) + jet(380, 68) +
+      `<rect x="300" y="18" width="78" height="16" rx="3" fill="url(#hl)" stroke="#1d262d" stroke-width="2"/>` +
+      `<rect x="306" y="22" width="44" height="8" rx="2" fill="#3ad8ff" opacity=".8"/>` + funnel(362).replace('cy="50"', 'cy="26"').replace('cy="50"', 'cy="26"'),
+    Battleship: W =>   // three big gun turrets, bridge and funnel
+      hull(W, 18, 82) + deck(W, 18, 82) + foam(W) +
+      turret(310, 15) + turret(258, 14) + bridge(168, 70, 34) + funnel(146) + turret(78, 15, true),
+    Cruiser: W =>   // two turrets, bridge and mast
+      hull(W, 22, 78) + deck(W, 22, 78) + foam(W) +
+      turret(222, 13) + bridge(116, 58, 30) + funnel(100) + `<circle cx="160" cy="50" r="4" fill="#3ad8ff"/>` + turret(62, 13, true),
+    Submarine: W =>   // smooth dark body, sail (tower), rudders at the back
+      `<path d="M8 36 L24 50 L8 64Z" fill="#26313b" ${NEON}/>` +
+      `<path d="M22 50 Q22 28 62 28 L230 28 Q290 31 295 50 Q290 69 230 72 L62 72 Q22 72 22 50Z" fill="url(#sb)" ${NEON}/>` +
+      `<line x1="60" y1="50" x2="250" y2="50" stroke="#5f7180" stroke-opacity=".5" stroke-width="1.5"/>` +
+      `<rect x="114" y="39" width="60" height="22" rx="11" fill="#38444f" stroke="#1d262d" stroke-width="2"/>` +
+      `<rect x="150" y="46" width="12" height="8" rx="3" fill="#3ad8ff" opacity=".85"/>` +
+      `<circle cx="210" cy="50" r="3" fill="#7d8f9e"/><circle cx="90" cy="50" r="3" fill="#7d8f9e"/>`,
+    Destroyer: W =>   // narrow and fast: one turret, small bridge, funnel
+      hull(W, 26, 74) + deck(W, 26, 74) + foam(W) +
+      turret(150, 12) + bridge(82, 40, 26) + funnel(62)
+  };
+
+  const shipCache = {};
+  function shipImage(name, dir) {
+    const key = name + dir;
+    if (shipCache[key]) return shipCache[key];
+    const len = (FLEET.find(f => f.name === name) || { len: 2 }).len, W = len * 100;
+    const art = SHIP_ART[name] ? SHIP_ART[name](W) : hull(W, 28, 72);
+    const body = dir === "h" ? art : `<g transform="translate(100 0) rotate(90)">${art}</g>`;   // turn it for vertical ships
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dir === "h" ? W : 100} ${dir === "h" ? 100 : W}" preserveAspectRatio="none">${DEFS}${body}</svg>`;
+    return (shipCache[key] = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+  }
+  // Give a square its slice of the ship picture (or remove it if there is no ship to show).
+  function paintShip(el, s, i) {
+    if (!s) {
+      if (el.dataset.ship) { delete el.dataset.ship; ["--img", "--bs", "--bp"].forEach(v => el.style.removeProperty(v)); }
+      return;
+    }
+    const k = s.cells.indexOf(i), key = s.name + s.dir + k;
+    if (k < 0 || el.dataset.ship === key) return;               // already showing the right slice
+    el.dataset.ship = key;
+    const pos = s.len > 1 ? (k / (s.len - 1)) * 100 : 0;      // slice k of len: 0%, 25%, 50%... along the ship
+    el.style.setProperty("--img", shipImage(s.name, s.dir));
+    el.style.setProperty("--bs", s.dir === "h" ? `${s.len * 100}% 100%` : `100% ${s.len * 100}%`);
+    el.style.setProperty("--bp", s.dir === "h" ? `${pos}% 0%` : `0% ${pos}%`);
+  }
+
   // ---------- render ----------
   function hullClasses(cls, s, i) {
     cls.push("hull", s.dir);
@@ -1567,6 +1657,7 @@ button.b.primary { box-shadow: var(--neon); }
       // The Expert AI's radar frame on your board.
       if (S.aiRadarAt >= 0 && Math.abs(Math.floor(i / N) - Math.floor(S.aiRadarAt / N)) <= 1 && Math.abs(i % N - S.aiRadarAt % N) <= 1) cls.push("radar");
       setCell(pBtns[i], cls, label, S.phase !== "place" || placeLocked());   // during setup every square works (place, drag, turn)
+      paintShip(pBtns[i], cell.ship >= 0 ? S.player.ships[cell.ship] : null, i);
     });
     // AI THINKING: tint each square red by how likely the Hard AI thinks a ship is there.
     const hk = S.id + ":" + S.player.cells.reduce((n, c) => n + c.shot, 0);   // changes only when a shot lands
@@ -1606,6 +1697,7 @@ button.b.primary { box-shadow: var(--neon); }
       // Radar frame: is this square at most 1 row and 1 column away from the scanned square?
       if (S.radarAt >= 0 && Math.abs(Math.floor(i / N) - Math.floor(S.radarAt / N)) <= 1 && Math.abs(i % N - S.radarAt % N) <= 1) cls.push("radar");
       setCell(eBtns[i], cls, label, S.phase !== "battle" || S.busy || cell.shot);
+      paintShip(eBtns[i], s && (isSunk(s) || reveal) ? s : null, i);
     });
 
     $("veil").hidden = S.phase !== "place";
