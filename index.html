@@ -337,6 +337,32 @@ button.b.primary { box-shadow: var(--neon); }
 .online-status { margin: 0; font-size: 14px; line-height: 1.7; }
 .room-code { font-family: var(--mono); font-size: 22px; letter-spacing: 0.2em; color: var(--accent); text-shadow: var(--neon); }
 
+/* ---------- moving ships ---------- */
+.wrap[data-phase="place"] #sea-player .cell.hull { cursor: grab; touch-action: none; }   /* touch-action: the finger drags the ship, not the page */
+.cell.lifting::before { opacity: 0.3; }                                                     /* the ship you are dragging, at its old place */
+
+/* ---------- turn timer ---------- */
+.status { position: relative; overflow: hidden; }
+.timebar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(58, 216, 255, 0.15); }
+.timebar i { display: block; height: 100%; background: var(--accent); box-shadow: var(--neon); transform-origin: left; }
+.timebar.low i { background: var(--hit); box-shadow: 0 0 8px var(--hit); }
+#btn-timer[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* ---------- achievements ---------- */
+.ach-card { max-width: 440px; max-height: calc(100vh - 32px); overflow-y: auto; }   /* short screens: scroll inside the card */
+.ach-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; width: 100%; text-align: left; max-height: 55vh; overflow-y: auto; }
+.ach-list li { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.ach-list .ic { font-size: 1.5em; text-align: center; }
+.ach-list b { display: block; font-family: var(--label); letter-spacing: 0.06em; text-transform: uppercase; }
+.ach-list small { color: var(--muted); }
+.ach-list li.got { border-color: var(--accent); box-shadow: 0 0 12px rgba(58, 216, 255, 0.18); }
+.ach-list li:not(.got) .ic { filter: grayscale(1); opacity: 0.45; }
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 16; display: grid; gap: 8px; pointer-events: none; width: min(92vw, 360px); }
+.toast { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--accent); box-shadow: var(--neon), 0 12px 30px rgba(0, 0, 0, 0.5); animation: toastIn 0.4s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.toast .ic { font-size: 1.6em; text-align: center; }
+.toast b { display: block; font-family: var(--label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-size: 12px; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(20px) scale(0.9); } }
+
 @media (max-width: 760px) {
   .theatre, .console { grid-template-columns: minmax(0, 1fr); }
   .wrap[data-phase="battle"] #side-enemy { order: -1; }
@@ -385,12 +411,14 @@ button.b.primary { box-shadow: var(--neon); }
       <span>Record <b id="record">0–0</b></span>
       <button class="b" id="btn-sound" type="button" aria-pressed="true">🔊 Sound on</button>
       <button class="b" id="btn-music" type="button" aria-pressed="true">🎵 Music on</button>
+      <button class="b" id="btn-ach" type="button" aria-haspopup="dialog">&#127941; 0/10</button>
     </div>
   </header>
 
   <section class="status" aria-live="polite">
     <span class="chip" id="chip">Setup</span>
     <p id="msg"></p>
+    <div class="timebar" id="timebar" hidden><i id="timefill"></i></div>
   </section>
 
   <main class="theatre">
@@ -430,7 +458,7 @@ button.b.primary { box-shadow: var(--neon); }
         <button class="b" id="btn-clear" type="button">Clear</button>
         <button class="b primary" id="btn-start" type="button">Start battle</button>
       </div>
-      <p class="hint">Click a square to place the next ship. Press <kbd>R</kbd> to rotate.</p>
+      <p class="hint">Click a square to place the next ship. Press <kbd>R</kbd> to rotate. Drag a placed ship to move it, tap it to turn it.</p>
       <p class="hint">Watch out: when the battle starts, each sea hides 3 bombs. Hit one and you lose your next turn.</p>
     </div>
 
@@ -455,8 +483,10 @@ button.b.primary { box-shadow: var(--neon); }
         <input type="radio" name="diff" id="diff-easy" value="easy"><label for="diff-easy">Easy</label>
         <input type="radio" name="diff" id="diff-medium" value="medium"><label for="diff-medium">Medium</label>
         <input type="radio" name="diff" id="diff-hard" value="hard"><label for="diff-hard">Hard</label>
+        <input type="radio" name="diff" id="diff-expert" value="expert"><label for="diff-expert">Expert</label>
       </div>
       <p class="hint" id="diff-note"></p>
+      <div class="btns"><button class="b" id="btn-timer" type="button" aria-pressed="false">Turn timer: off</button></div>
       <div class="online" id="online">
         <h3>Play a friend online</h3>
         <div class="btns" id="online-start">
@@ -472,6 +502,17 @@ button.b.primary { box-shadow: var(--neon); }
       <ol class="log" id="log"></ol>
     </div>
   </section>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <div class="banner" id="ach-panel" hidden>
+    <div class="banner-card ach-card" role="dialog" aria-modal="true" aria-labelledby="ach-title">
+      <p class="banner-kicker">Your medals</p>
+      <h2 id="ach-title">Achievements</h2>
+      <ul class="ach-list" id="ach-list"></ul>
+      <div class="btns"><button class="b primary" id="ach-close" type="button">Close</button></div>
+    </div>
+  </div>
 
   <div class="fx" id="fx" aria-hidden="true"></div>
 
@@ -583,8 +624,10 @@ button.b.primary { box-shadow: var(--neon); }
 
   // Count every way the remaining ships could still lie. Returns a score for every square:
   // the bigger the score, the more likely a ship is there. (Also used by "Show AI thinking".)
-  function scoreBoard(b) {
-    const { hitOpen, blocked } = knowledge(b);
+  function scoreBoard(b, known) {
+    const { hitOpen, blocked: shotBlocked } = knowledge(b);
+    const off = new Set(known || []);                       // squares a radar said are empty (Expert only)
+    const blocked = i => shotBlocked(i) || off.has(i);
     const anyOpen = b.cells.some((c, i) => hitOpen(i));
     const score = new Array(N * N).fill(0);
     for (const s of b.ships) {
@@ -615,7 +658,23 @@ button.b.primary { box-shadow: var(--neon); }
 
   // Medium: half the time it plays like Hard, half the time like Easy.
   const pickMedium = b => (Math.random() < 0.5 ? pickHard(b) : pickEasy(b));
-  const PICKERS = { easy: pickEasy, medium: pickMedium, hard: pickHard };
+  // Expert: like Hard, but it also uses what its own radar told it.
+  function pickExpert(b) {
+    const score = scoreBoard(b, S.aiEmpty);
+    const { hitOpen } = knowledge(b);
+    const chasing = b.cells.some((c, i) => hitOpen(i));
+    let pool = b.cells.map((c, i) => i).filter(i => !b.cells[i].shot);
+    // The radar found ship squares in a zone: search that zone first (unless it is already chasing a hit).
+    if (!chasing && S.aiZone) {
+      const left = S.aiZone.cells.filter(i => !b.cells[i].shot);
+      const found = S.aiZone.cells.filter(i => b.cells[i].shot && b.cells[i].ship >= 0).length - (S.aiZone.base || 0);   // new finds since the scan
+      if (left.length && found < S.aiZone.count) pool = left; else S.aiZone = null;
+    }
+    let best = -1, picks = [];
+    pool.forEach(i => { if (score[i] > best) { best = score[i]; picks = [i]; } else if (score[i] === best) picks.push(i); });
+    return picks[rnd(picks.length)];
+  }
+  const PICKERS = { easy: pickEasy, medium: pickMedium, hard: pickHard, expert: pickExpert };
 
   // ---------- record (per browser) ----------
   function loadRecord() {
@@ -690,7 +749,9 @@ button.b.primary { box-shadow: var(--neon); }
     sunk:  () => { SFX.hit(); noise(1.4, 300, 0.45, 0.15); tone(90, 30, 1.2, "sine", 0.35, 0.15); },    // big boom + rumble
     bomb:  () => { noise(1.2, 1200, 0.6); tone(220, 30, 0.9, "sawtooth", 0.25); noise(0.8, 3000, 0.15, 0.2, "highpass"); },
     win:   () => [523, 659, 784, 1047].forEach((f, k) => tone(f, f, 0.35, "triangle", 0.18, 0.5 + k * 0.14)),   // happy notes going up
-    lose:  () => [392, 330, 262, 196].forEach((f, k) => tone(f, f * 0.97, 0.45, "triangle", 0.18, 0.5 + k * 0.22)) // sad notes going down
+    lose:  () => [392, 330, 262, 196].forEach((f, k) => tone(f, f * 0.97, 0.45, "triangle", 0.18, 0.5 + k * 0.22)), // sad notes going down
+    tick:  () => tone(1250, 1250, 0.05, "square", 0.05),                                              // clock tick
+    bonus: () => { tone(660, 660, 0.12, "square", 0.08, 0.1); tone(990, 990, 0.2, "square", 0.08, 0.24); }   // "ding-ding!" for medals
   };
   // Pick the right sound for the result of a shot.
   const shotSound = r => SFX[r.bomb ? "bomb" : r.sunk ? "sunk" : r.hit ? "hit" : "miss"]();
@@ -827,6 +888,13 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   // ---------- state ----------
+  let drag = null;                      // the ship being dragged during setup (null = none)
+  let noClickUntil = 0;                 // after a drag, ignore the click that follows
+  let timed = loadTimed();              // turn timer switch (remembered in the browser)
+  let deadline = 0, lastSec = -1;       // when the current turn runs out (0 = no countdown)
+  const TURN_SECONDS = 10;
+  function loadTimed() { try { return localStorage.getItem("battleship-timer") === "1"; } catch { return false; } }
+  function saveTimed() { try { localStorage.setItem("battleship-timer", timed ? "1" : "0"); } catch {} }
   let armed = -1;                       // phones: the square tapped once (tap again to fire)
   let heatKey = "", heatVal = null;     // heat map cache: only recount when a new shot lands
   let showHeat = false;               // "Show AI thinking" switch
@@ -840,7 +908,8 @@ button.b.primary { box-shadow: var(--neon); }
       lastP: -1, lastE: -1, winner: null,
       myLine: "",                      // what your last shot did, kept separately so the enemy's turn can add to it
       playerSkips: 0, enemySkips: 0,   // turns lost to bombs
-      radarLeft: 1, radarMode: false, radarAt: -1,   // radar: uses left, aiming now?, last scanned square
+      radarLeft: 1, radarMode: false, radarAt: -1,
+      aiRadar: 1, aiRadarAt: -1, aiZone: null, aiEmpty: [],   // Expert AI: its radar, and what the radar told it   // radar: uses left, aiming now?, last scanned square
       msg: "Your fleet is deployed at random. Start the battle, or clear the board and place the ships yourself."
     };
   }
@@ -900,6 +969,7 @@ button.b.primary { box-shadow: var(--neon); }
   }
 
   function placeAt(i) {
+    if (Date.now() < noClickUntil) return;   // this click came from the end of a drag
     const spec = nextSpec();
     if (!spec) return;
     const cells = originFor(i, spec.len, S.orient);
@@ -954,6 +1024,7 @@ button.b.primary { box-shadow: var(--neon); }
   }
   function playerFire(i) {
     if (S.phase !== "battle" || S.busy || S.enemy.cells[i].shot) return;
+    deadline = 0;                           // you acted: the turn timer starts fresh next time it is your turn
     if (S.radarMode) return S.online ? onlineRadar(i) : useRadar(i);   // radar is aiming: scan instead of firing
     S.radarAt = -1;                         // a normal shot clears the old radar highlight
     if (S.online) return onlineFire(i);     // online: ask your friend what is there
@@ -988,6 +1059,8 @@ button.b.primary { box-shadow: var(--neon); }
   function scheduleAI() { const id = S.id; setTimeout(() => aiTurn(id), AI_DELAY); }
   function aiTurn(id) {
     if (!S || S.id !== id || S.phase !== "battle") return;
+    if (S.diff === "expert" && expertRadar()) return;   // Expert may use its radar instead of shooting
+    S.aiRadarAt = -1;
     const i = (PICKERS[S.diff] || pickHard)(S.player);
     const r = fire(S.player, i);
     if (r.hit) S.taken++;
@@ -1061,9 +1134,148 @@ button.b.primary { box-shadow: var(--neon); }
       S.msg = "Defeat. Your fleet is gone. Enemy ships still afloat are shown in outline.";
     }
     saveRecord(record);
+    checkAchievements(winner === "player");
     if (S.online) send({ type: "reveal", board: S.startP });   // game over: now it is fair to show your board
     render();
     if (!bannerClosed) $("banner-again").focus();
+  }
+
+  // Expert's radar: once per game, when it has nothing to chase, it scans the 3x3 area
+  // where the most ship positions are possible. Like yours, it costs the turn.
+  function expertRadar() {
+    const b = S.player, { hitOpen } = knowledge(b);
+    const aiShots = b.cells.filter(c => c.shot).length;
+    if (!(S.aiRadar > 0) || aiShots < 6 || b.cells.some((c, i) => hitOpen(i))) return false;
+    const score = scoreBoard(b, S.aiEmpty);
+    let best = -1, center = -1;
+    for (let r = 1; r < N - 1; r++) for (let c = 1; c < N - 1; c++) {     // centres that keep the 3x3 on the board
+      let sum = 0;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) sum += score[(r + dr) * N + c + dc];
+      if (sum > best) { best = sum; center = r * N + c; }
+    }
+    if (center < 0) return false;
+    const zone = [];
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) zone.push(center + dr * N + dc);
+    const count = radarCount(b, center);
+    S.aiRadar = 0; S.aiRadarAt = center;
+    if (count === 0) S.aiEmpty = (S.aiEmpty || []).concat(zone.filter(i => !b.cells[i].shot));   // remember: nothing there
+    else S.aiZone = { cells: zone, count, base: zone.filter(i => b.cells[i].shot && b.cells[i].ship >= 0).length };   // remember: search here
+    S.msg = `${S.myLine || ""} The enemy used its radar around ${coord(center)}!`;
+    if (S.playerSkips > 0) { S.playerSkips--; S.msg += AIM; render(); scheduleAI(); return true; }   // same turn rules as a shot
+    S.busy = false;
+    S.msg += " Your shot.";
+    render();
+    return true;
+  }
+
+  // ---------- turn timer (optional, against the computer) ----------
+  // When it is on, you have TURN_SECONDS for each shot. Too slow? You lose that turn.
+  function timerTick() {
+    const bar = $("timebar");
+    const on = timed && S && !S.online && S.phase === "battle" && !S.busy;
+    if (!on) { deadline = 0; lastSec = -1; bar.hidden = true; return; }
+    if (!deadline) deadline = Date.now() + TURN_SECONDS * 1000;      // a new turn: start counting
+    const left = Math.max(0, deadline - Date.now());
+    const sec = Math.ceil(left / 1000);
+    bar.hidden = false;
+    bar.classList.toggle("low", left <= 3000);
+    $("timefill").style.transform = `scaleX(${left / (TURN_SECONDS * 1000)})`;
+    $("chip").textContent = `Your turn ${sec}s`;
+    if (sec !== lastSec) { lastSec = sec; if (sec > 0 && sec <= 3) SFX.tick(); }
+    if (left <= 0) timeUp();
+  }
+  function timeUp() {
+    deadline = 0;
+    SFX.error();
+    S.radarMode = false;
+    S.myLine = "Time's up! You lost that turn.";
+    if (S.enemySkips > 0) { S.enemySkips--; S.msg = S.myLine + " The enemy is still recovering from the bomb. Fire again."; render(); return; }
+    S.msg = S.myLine + AIM;
+    S.busy = true;
+    render();
+    scheduleAI();
+  }
+
+  // ---------- achievements ----------
+  const ACHIEVEMENTS = [
+    { id: "first",   icon: "\u2693",       name: "First victory",    text: "Win a game." },
+    { id: "hard",    icon: "\uD83C\uDF96", name: "Admiral",          text: "Beat the Hard (or Expert) computer." },
+    { id: "expert",  icon: "\uD83D\uDC51", name: "Grand Admiral",    text: "Beat the Expert computer." },
+    { id: "quick",   icon: "\u26A1",       name: "Lightning strike", text: "Win in 40 shots or fewer." },
+    { id: "row5",    icon: "\uD83C\uDFAF", name: "Bullseye",         text: "Hit 5 times in a row." },
+    { id: "nobomb",  icon: "\uD83D\uDEE1", name: "Bomb dodger",      text: "Win without hitting a bomb." },
+    { id: "tough",   icon: "\uD83C\uDFF0", name: "Untouchable",      text: "Win and lose 5 squares or fewer." },
+    { id: "streak3", icon: "\uD83D\uDD25", name: "On fire",          text: "Win 3 games in a row." },
+    { id: "timed",   icon: "\u23F1",       name: "Quick thinker",    text: "Beat the computer with the turn timer on." },
+    { id: "online",  icon: "\uD83C\uDF10", name: "Online champion",  text: "Beat a friend online." }
+  ];
+  let unlocked = loadAch();               // { id: time it was unlocked }
+  function loadAch() { try { return JSON.parse(localStorage.getItem("battleship-achievements") || "{}") || {}; } catch { return {}; } }
+  function saveAch() { try { localStorage.setItem("battleship-achievements", JSON.stringify(unlocked)); } catch {} }
+
+  // Called when a game ends: which medals did this game earn?
+  function checkAchievements(won) {
+    const mine = S.log.filter(e => e.who === "You");
+    let run = 0, bestRun = 0;                                       // longest run of hits in a row
+    mine.forEach(e => { run = e.r.hit ? run + 1 : 0; bestRun = Math.max(bestRun, run); });
+    const vsAI = !S.online;
+    const earned = {
+      first: won,
+      hard: won && vsAI && (S.diff === "hard" || S.diff === "expert"),
+      expert: won && vsAI && S.diff === "expert",
+      quick: won && S.shots <= 40,
+      row5: bestRun >= 5,
+      nobomb: won && !mine.some(e => e.r.bomb),
+      tough: won && S.taken <= 5,
+      streak3: record.streak >= 3,
+      timed: won && vsAI && !!S.timedGame,
+      online: won && !vsAI
+    };
+    const fresh = ACHIEVEMENTS.filter(a => earned[a.id] && !unlocked[a.id]);
+    if (!fresh.length) return;
+    fresh.forEach(a => (unlocked[a.id] = Date.now()));
+    saveAch();
+    fresh.forEach((a, k) => setTimeout(() => toast(a), 900 + k * 700));   // one after another, after the win sound
+  }
+  // A small "Achievement unlocked" card that pops up at the bottom and fades away.
+  function toast(a) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `<span class="ic" aria-hidden="true">${a.icon}</span><div><b>Achievement unlocked</b>${a.name}</div>`;
+    $("toasts").appendChild(el);
+    SFX.bonus();
+    setTimeout(() => el.remove(), 4500);
+  }
+  function openAch() {
+    $("ach-list").innerHTML = ACHIEVEMENTS.map(a =>
+      `<li class="${unlocked[a.id] ? "got" : ""}"><span class="ic" aria-hidden="true">${a.icon}</span><div><b>${a.name}${unlocked[a.id] ? "" : " (locked)"}</b><small>${a.text}</small></div></li>`).join("");
+    $("ach-panel").hidden = false;
+    $("ach-close").focus();
+  }
+  function closeAch() { $("ach-panel").hidden = true; $("btn-ach").focus(); }
+
+  // ---------- moving placed ships (drag) and turning them (tap) ----------
+  const placeLocked = () => !!(S.online && S.online.meReady);
+  // Can ship number `id` stand on these squares? (Its own old squares don't count as taken.)
+  const fitsMoved = (b, cells, id) => !!cells && cells.every(i => b.cells[i].ship === -1 || b.cells[i].ship === id);
+  function moveShip(b, id, cells, dir) {
+    const s = b.ships[id];
+    s.cells.forEach(i => (b.cells[i].ship = -1));
+    s.cells = cells; s.dir = dir;
+    cells.forEach(i => (b.cells[i].ship = id));
+  }
+  // Where would the dragged ship go if the square you grabbed were at square i?
+  function dragTarget(i) {
+    const s = S.player.ships[drag.id];
+    let r = Math.floor(i / N), c = i % N;
+    if (s.dir === "h") c -= drag.grab; else r -= drag.grab;
+    return r < 0 || c < 0 ? null : cellsFor(s.len, r, c, s.dir);
+  }
+  // Which of your squares is under the mouse or finger? (-1 = none)
+  function cellAt(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const c = el && el.closest("#sea-player .cell");
+    return c ? +c.dataset.i : -1;
   }
 
   // ---------- online play (two players, two computers) ----------
@@ -1330,11 +1542,12 @@ button.b.primary { box-shadow: var(--neon); }
   function renderPlayerBoard() {
     const spec = nextSpec();
     let pv = new Set(), pvOk = false;
-    if (spec && hover >= 0) {
+    if (spec && hover >= 0 && !drag) {
       const cells = originFor(hover, spec.len, S.orient);
       pvOk = fits(S.player, cells);
       (cells || []).forEach(i => pv.add(i));
     }
+    if (drag && drag.moved) { (drag.cells || []).forEach(i => pv.add(i)); pvOk = drag.ok; }   // where the dragged ship would land
     S.player.cells.forEach((cell, i) => {
       const cls = ["cell"]; let label = coord(i);
       if (cell.ship >= 0) {
@@ -1349,8 +1562,11 @@ button.b.primary { box-shadow: var(--neon); }
         label += cell.ship >= 0 ? ", hit" : cell.bomb ? ", exploded" : ", enemy miss";
       }
       if (pv.has(i)) cls.push(pvOk ? "pv" : "pv-bad");
+      if (drag && drag.moved && cell.ship === drag.id) cls.push("lifting");
       if (i === S.lastP) cls.push("ping");
-      setCell(pBtns[i], cls, label, !spec);
+      // The Expert AI's radar frame on your board.
+      if (S.aiRadarAt >= 0 && Math.abs(Math.floor(i / N) - Math.floor(S.aiRadarAt / N)) <= 1 && Math.abs(i % N - S.aiRadarAt % N) <= 1) cls.push("radar");
+      setCell(pBtns[i], cls, label, S.phase !== "place" || placeLocked());   // during setup every square works (place, drag, turn)
     });
     // AI THINKING: tint each square red by how likely the Hard AI thinks a ship is there.
     const hk = S.id + ":" + S.player.cells.reduce((n, c) => n + c.shot, 0);   // changes only when a shot lands
@@ -1450,6 +1666,13 @@ button.b.primary { box-shadow: var(--neon); }
     $("s-hits").textContent = S.hits;
     $("s-acc").textContent = S.shots ? Math.round((S.hits / S.shots) * 100) + "%" : "–";
     $("s-taken").textContent = `${S.taken}/${TOTAL_SQUARES}`;
+    const tb = $("btn-timer");
+    tb.textContent = timed ? `Turn timer: ${TURN_SECONDS} s` : "Turn timer: off";
+    tb.setAttribute("aria-pressed", String(timed));
+    tb.disabled = S.phase !== "place";
+    tb.parentElement.hidden = !!S.online;     // no timer against a person
+    $("btn-ach").textContent = `\uD83C\uDFC5 ${Object.keys(unlocked).filter(k => ACHIEVEMENTS.some(a => a.id === k)).length}/${ACHIEVEMENTS.length}`;
+    $("btn-ach").setAttribute("aria-label", "Achievements");
     $("btn-heat").classList.toggle("primary", showHeat);   // yellow while it is on
     $("btn-heat").setAttribute("aria-pressed", String(showHeat));
     $("heat-note").hidden = !showHeat;
@@ -1467,6 +1690,7 @@ button.b.primary { box-shadow: var(--neon); }
       r.disabled = S.phase !== "place";
     });
     const DIFF_NOTES = {
+      expert: "Plays like Hard, and also has its own one-time radar. Good luck, Admiral.",
       easy: "Fires mostly at random and follows up on hits.",
       medium: "Sometimes plays smart, sometimes guesses.",
       hard: "Works out where your ships can still be and fires at the likeliest square."
@@ -1532,7 +1756,7 @@ button.b.primary { box-shadow: var(--neon); }
     const pSea = buildBoard("player", pBtns, placeAt);
     buildBoard("enemy", eBtns, tapFire);
     pSea.addEventListener("pointerover", e => {
-      const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
+      const c = e.target.closest(".cell"); if (!c || !nextSpec() || drag) return;
       const i = +c.dataset.i; if (i !== hover) { hover = i; renderPlayerBoard(); }
     });
     pSea.addEventListener("pointerleave", () => { if (hover !== -1) { hover = -1; renderPlayerBoard(); } });
@@ -1540,6 +1764,39 @@ button.b.primary { box-shadow: var(--neon); }
       const c = e.target.closest(".cell"); if (!c || !nextSpec()) return;
       hover = +c.dataset.i; renderPlayerBoard();
     });
+    // DRAG: press on a placed ship, move, let go. A press without moving turns the ship.
+    pSea.addEventListener("pointerdown", e => {
+      const c = e.target.closest(".cell");
+      if (!c || S.phase !== "place" || placeLocked()) return;
+      const i = +c.dataset.i, id = S.player.cells[i].ship;
+      if (id < 0) return;                               // empty water: a normal click places the next ship
+      drag = { id, grab: S.player.ships[id].cells.indexOf(i), at: i, cells: null, ok: false, moved: false };
+      e.preventDefault();
+    });
+    document.addEventListener("pointermove", e => {
+      if (!drag) return;
+      const i = cellAt(e);
+      if (i < 0 || i === drag.at) return;
+      drag.at = i; drag.moved = true;
+      drag.cells = dragTarget(i);
+      drag.ok = fitsMoved(S.player, drag.cells, drag.id);
+      renderPlayerBoard();
+    });
+    document.addEventListener("pointerup", () => {
+      if (!drag) return;
+      const d = drag, s = S.player.ships[d.id];
+      drag = null;
+      noClickUntil = Date.now() + 300;                  // the click right after this must not place a ship
+      if (!d.moved) {                                   // a tap on a ship: turn it
+        const dir = s.dir === "h" ? "v" : "h";
+        const cells = originFor(s.cells[0], s.len, dir);
+        if (fitsMoved(S.player, cells, d.id)) { moveShip(S.player, d.id, cells, dir); SFX.place(); S.msg = `${s.name} turned.`; }
+        else { SFX.error(); S.msg = `No room to turn the ${s.name} there.`; }
+      } else if (d.ok) { moveShip(S.player, d.id, d.cells, s.dir); SFX.place(); S.msg = `${s.name} moved to ${coord(d.cells[0])}.`; }
+      else { SFX.error(); S.msg = `The ${s.name} can't go there.`; }
+      render();
+    });
+    document.addEventListener("pointercancel", () => { if (drag) { drag = null; renderPlayerBoard(); } });
 
     const rotate = () => { if (!nextSpec()) return; S.orient = S.orient === "h" ? "v" : "h"; render(); };
     $("btn-rotate").onclick = rotate;
@@ -1575,6 +1832,7 @@ button.b.primary { box-shadow: var(--neon); }
       // Remember both boards as they are now, so the replay can start from here.
       S.startP = JSON.parse(JSON.stringify(S.player));
       S.startE = JSON.parse(JSON.stringify(S.enemy));
+      S.timedGame = timed;                     // for the "Quick thinker" medal
       SFX.start();
       S.msg = `Battle stations. Each sea hides ${BOMBS} bombs: hit one and you lose your next turn. You fire first.`;
       render();
@@ -1588,6 +1846,11 @@ button.b.primary { box-shadow: var(--neon); }
     };
     $("btn-heat").onclick = () => { showHeat = !showHeat; render(); };
     $("btn-host").onclick = hostRoom;
+    $("btn-timer").onclick = () => { if (S.phase !== "place") return; timed = !timed; saveTimed(); render(); };
+    setInterval(timerTick, 100);
+    $("btn-ach").onclick = openAch;
+    $("ach-close").onclick = closeAch;
+    $("ach-panel").onclick = e => { if (e.target.id === "ach-panel") closeAch(); };
     // Invite link: a link with the room code inside. Your friend opens it and the code is already filled in.
     $("online-status").onclick = e => {
       if (!e.target.closest("[data-copy]") || !S.online) return;
@@ -1631,7 +1894,8 @@ button.b.primary { box-shadow: var(--neon); }
     }));
     document.addEventListener("keydown", e => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;   // leave browser shortcuts like Ctrl+R alone
-      if (e.target.matches("input, textarea, select")) return;
+      if (e.target instanceof Element && e.target.matches("input, textarea, select")) return;   // typing in a box: no shortcuts
+      if (e.key === "Escape" && !$("ach-panel").hidden) { closeAch(); return; }
       const k = e.key.toLowerCase();
       if (k === "r") rotate();
       if (k === "m") toggleSound();
